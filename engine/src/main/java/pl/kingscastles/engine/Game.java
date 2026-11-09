@@ -1,5 +1,6 @@
 package pl.kingscastles.engine;
 
+import pl.kingscastles.engine.ai.ComputerKing;
 import pl.kingscastles.engine.map.MapGenerator;
 import pl.kingscastles.engine.model.Enums.Controller;
 import pl.kingscastles.engine.model.GameState;
@@ -16,8 +17,10 @@ import pl.kingscastles.engine.turn.TurnResolver;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Entry point of the engine: create a game, collect orders during a turn, resolve the turn.
@@ -64,6 +67,9 @@ public class Game {
 
     private final GameState state;
     private final Map<String, List<Order>> pending = new HashMap<>();
+    private final Map<String, List<Order>> autopilotOrders = new HashMap<>();
+    /** Children who gave orders or pressed Ready this turn. */
+    private final Set<String> present = new HashSet<>();
 
     private Game(GameState state) {
         this.state = state;
@@ -114,16 +120,43 @@ public class Game {
         List<Problem> problems = OrderValidator.validate(state, kingdomId, orders);
         if (problems.isEmpty()) {
             pending.put(kingdomId, List.copyOf(orders));
+            present.add(kingdomId);
         }
         return problems;
+    }
+
+    /** A child pressed Ready (maybe without orders): they are here, not absent. */
+    public synchronized void markPresent(String kingdomId) {
+        present.add(kingdomId);
+    }
+
+    public synchronized Set<String> presentPlayers() {
+        return Set.copyOf(present);
     }
 
     public synchronized List<Order> ordersOf(String kingdomId) {
         return pending.getOrDefault(kingdomId, List.of());
     }
 
+    /**
+     * Ends the turn: computer kings (and absent players on autopilot) choose their orders,
+     * then everyone's orders are carried out together.
+     */
     public synchronized TurnReport endTurn() {
-        TurnReport report = TurnResolver.resolve(state, new HashMap<>(pending));
+        for (Kingdom k : state.kingdoms.values()) {
+            if (!k.isHuman()) {
+                pending.put(k.id, ComputerKing.orders(state, k.id, k.controller));
+            } else if (k.autopilot && !pending.containsKey(k.id)) {
+                // played gently by the computer; an empty list keeps the player counted as absent
+                List<Order> auto = ComputerKing.orders(state, k.id, Controller.AI_BEGINNER);
+                autopilotOrders.put(k.id, auto);
+            }
+        }
+        Map<String, List<Order>> all = new HashMap<>(pending);
+        autopilotOrders.forEach(all::putIfAbsent);
+        autopilotOrders.clear();
+        TurnReport report = TurnResolver.resolve(state, all, new HashSet<>(present));
+        present.clear();
         pending.clear();
         return report;
     }

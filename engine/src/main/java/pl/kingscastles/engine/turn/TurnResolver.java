@@ -79,11 +79,25 @@ public final class TurnResolver {
 
     /** Resolves the current turn. {@code orders} maps kingdom id to its orders (already validated). */
     public static TurnReport resolve(GameState s, Map<String, List<Order>> orders) {
+        Set<String> present = new HashSet<>();
+        orders.forEach((k, list) -> {
+            if (!list.isEmpty()) {
+                present.add(k);
+            }
+        });
+        return resolve(s, orders, present);
+    }
+
+    /**
+     * Resolves the current turn. {@code present} names the players who did something this turn
+     * (gave orders or pressed Ready); other children count as absent, even when the computer played for them.
+     */
+    public static TurnReport resolve(GameState s, Map<String, List<Order>> orders, Set<String> present) {
         if (s.finished) {
             throw new IllegalStateException("The game is over");
         }
         TurnResolver r = new TurnResolver(s);
-        r.reserve(orders);
+        r.reserve(orders, present);
         r.deals();
         r.gifts();
         r.market();
@@ -97,13 +111,14 @@ public final class TurnResolver {
 
     // ---------------------------------------------------------------- 0. reserve
 
-    private void reserve(Map<String, List<Order>> orders) {
+    private void reserve(Map<String, List<Order>> orders, Set<String> present) {
         int seq = 0;
         for (Kingdom k : s.kingdoms.values()) {
             List<Order> list = orders.getOrDefault(k.id, List.of());
             if (k.isHuman()) {
-                k.idleTurns = list.isEmpty() ? k.idleTurns + 1 : 0;
-                if (!list.isEmpty() && k.autopilot) {
+                boolean gaveOrders = present.contains(k.id);
+                k.idleTurns = gaveOrders ? 0 : k.idleTurns + 1;
+                if (gaveOrders && k.autopilot) {
                     k.autopilot = false;
                     event(RESERVE, "chronicle.playerBack", ALL, "kingdom", k.id);
                 }
