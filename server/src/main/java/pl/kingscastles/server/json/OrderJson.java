@@ -10,13 +10,13 @@ import org.springframework.context.annotation.Configuration;
 import pl.kingscastles.engine.order.Order;
 
 /**
- * Orders travel as JSON with a "type" field, e.g. {"type":"build","settlementId":3,"building":"MARKET"}.
+ * Orders travel as JSON with an "order" field (not "type": treaty orders already have a field called type), e.g. {"order":"build","settlementId":3,"building":"MARKET"}.
  * The engine has no JSON library, so the names are attached here.
  */
 @Configuration
 public class OrderJson {
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "order")
     @JsonSubTypes({
             @JsonSubTypes.Type(value = Order.SetTax.class, name = "setTax"),
             @JsonSubTypes.Type(value = Order.Build.class, name = "build"),

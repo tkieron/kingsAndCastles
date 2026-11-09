@@ -29,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <pre>
  * client → server
  *   {"type":"hello","code":"123456","token":"..."}      player token, or "hostToken" for the host's screen
- *   {"type":"orders","orders":[{"type":"build",...}]}   replaces this turn's orders
+ *   {"type":"orders","orders":[{"order":"build",...}]}  replaces this turn's orders
  *   {"type":"ready","ready":true}
  *   {"type":"endTurn"}                                  host only
  *   {"type":"ping"}

@@ -87,9 +87,9 @@ class GameFlowTest {
             assertEquals(k.get("id").asText().equals("fox"), k.has("gold"), "only my own gold is shown: " + k);
         }
 
-        ws.sendMessage(new TextMessage("{\"type\":\"orders\",\"orders\":[{\"type\":\"setTax\",\"rate\":\"MEDIUM\"}]}"));
+        ws.sendMessage(new TextMessage("{\"type\":\"orders\",\"orders\":[{\"order\":\"setTax\",\"rate\":\"MEDIUM\"}]}"));
         assertEquals("ordersOk", next(inbox).get("type").asText());
-        ws.sendMessage(new TextMessage("{\"type\":\"orders\",\"orders\":[{\"type\":\"build\",\"settlementId\":999,\"building\":\"MARKET\"}]}"));
+        ws.sendMessage(new TextMessage("{\"type\":\"orders\",\"orders\":[{\"order\":\"build\",\"settlementId\":999,\"building\":\"MARKET\"}]}"));
         JsonNode problems = next(inbox);
         assertEquals("problems", problems.get("type").asText());
         assertTrue(problems.at("/problems/0/key").asText().startsWith("error."));
@@ -114,6 +114,16 @@ class GameFlowTest {
         assertEquals("error.badRequest", bad.get("error").asText());
         JsonNode none = json.readTree(http.getForObject("/api/rooms/999999x", String.class));
         assertEquals("error.noSuchRoom", none.get("error").asText());
+    }
+
+    @Test
+    void theRulesListPricesAndKingdoms() throws Exception {
+        JsonNode rules = json.readTree(http.getForObject("/api/rules", String.class));
+        assertEquals(7, rules.get("kingdoms").size());
+        assertEquals(50, rules.at("/buildings/1/cost").asInt());
+        assertEquals("MARKET", rules.at("/buildings/1/type").asText());
+        assertEquals(100, rules.at("/balance/startGold").asInt());
+        assertTrue(rules.at("/units/2/needsBarracks").asBoolean());
     }
 
     private static HttpHeaders headers(String name, String value) {

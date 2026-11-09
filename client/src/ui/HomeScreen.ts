@@ -1,0 +1,104 @@
+import { api, ApiError, saveSeat, savedSeat, type Seat } from '../api';
+import { h } from '../dom';
+import { getLang, setLang, t, type Lang } from '../i18n';
+import { inkOn } from '../game/sprites';
+import { kingdomName } from '../game/text';
+import type { Controller, Rules } from '../types';
+import { castleIcon } from './GameScreen';
+
+const LEVELS: Controller[] = ['HUMAN', 'AI_BEGINNER', 'AI_ADVANCED', 'AI_PRO'];
+const DEFAULT_SEATS: Controller[] = ['HUMAN', 'HUMAN', 'HUMAN', 'AI_PRO', 'AI_BEGINNER', 'AI_ADVANCED', 'AI_ADVANCED'];
+const TURN_LENGTHS = [0, 30, 60, 90, 120, 180];
+
+/** First screen: join with a code, or (for the teacher or parent) create a room. */
+export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang: () => void): HTMLElement {
+  const error = h('p', { class: 'bad', role: 'alert' });
+  const fail = (e: unknown) => {
+    error.textContent = t(e instanceof ApiError ? e.key : 'error.badRequest');
+  };
+
+  const langs = h('div', { class: 'row lang' }, h('span', { class: 'small muted' }, t('home.language')),
+    ...(['en', 'pl'] as Lang[]).map((l) => h('button', {
+      class: `btn small${getLang() === l ? ' chosen' : ''}`,
+      onclick: () => {
+        setLang(l);
+        relang();
+      },
+    }, l === 'en' ? 'English' : 'Polski')));
+
+  const params = new URLSearchParams(location.search);
+  const code = h('input', {
+    class: 'input code', inputmode: 'numeric', maxlength: 6, autocomplete: 'off', placeholder: '123456',
+    value: params.get('room') ?? '', 'aria-label': t('home.code'),
+  });
+  const name = h('input', { class: 'input', maxlength: 20, autocomplete: 'nickname', 'aria-label': t('home.name') });
+  const join = h('form', {
+    class: 'card-light col gap',
+    onsubmit: async (e: Event) => {
+      e.preventDefault();
+      error.textContent = '';
+      try {
+        const c = code.value.replace(/\D/g, '');
+        const r = await api.join(c, name.value);
+        const seat = { code: c, token: r.token };
+        saveSeat(seat);
+        go(seat);
+      } catch (err) {
+        fail(err);
+      }
+    },
+  },
+  h('h2', {}, t('home.join')),
+  h('label', { class: 'col' }, t('home.code'), code),
+  h('label', { class: 'col' }, t('home.name'), name),
+  h('button', { class: 'btn-ready', type: 'submit' }, t('home.joinButton')));
+
+  const turnSel = h('select', { class: 'input', 'aria-label': t('home.turnLength') },
+    ...TURN_LENGTHS.map((s) => h('option', { value: s, selected: s === 60 }, s ? t('home.seconds', { n: s }) : t('home.noLimit'))));
+  const turnsSel = h('select', { class: 'input', 'aria-label': t('home.turns') },
+    ...[10, 15, 20, 25, 30].map((n) => h('option', { value: n, selected: n === 20 }, String(n))));
+  const seatSels = DEFAULT_SEATS.map((c, i) => h('select', { class: 'input', 'aria-label': `${t('lobby.seatKind')} ${i + 1}` },
+    ...LEVELS.map((l) => h('option', { value: l, selected: l === c }, t(`ctl.${l}`)))));
+  const emptySel = h('select', { class: 'input', 'aria-label': t('lobby.emptyLevel') },
+    ...LEVELS.slice(1).map((l) => h('option', { value: l }, t(`ctl.${l}`))));
+  const kingdoms = rules?.kingdoms ?? [];
+  const create = h('form', {
+    class: 'card-light col gap',
+    onsubmit: async (e: Event) => {
+      e.preventDefault();
+      error.textContent = '';
+      try {
+        const r = await api.create({
+          turnSeconds: Number(turnSel.value),
+          maxTurns: Number(turnsSel.value),
+          seats: seatSels.map((s) => s.value as Controller),
+          emptySeatLevel: emptySel.value as Controller,
+        });
+        const seat = { code: r.code, hostToken: r.hostToken };
+        saveSeat(seat);
+        go(seat);
+      } catch (err) {
+        fail(err);
+      }
+    },
+  },
+  h('h2', {}, t('home.create')),
+  h('div', { class: 'row wrap' }, h('label', { class: 'col' }, t('home.turnLength'), turnSel), h('label', { class: 'col' }, t('home.turns'), turnsSel)),
+  h('div', { class: 'seats' }, ...seatSels.map((sel, i) => {
+    const k = kingdoms[i];
+    return h('div', { class: 'row' },
+      h('div', { class: 'badge', style: k ? `background:${k.color};color:${inkOn(k.color)}` : '' }, k ? kingdomName(k.id).charAt(0) : String(i + 1)),
+      h('span', { class: 'seat-name' }, k ? kingdomName(k.id) : String(i + 1)), sel);
+  })),
+  h('label', { class: 'col' }, t('lobby.emptyLevel'), emptySel),
+  h('button', { class: 'btn', type: 'submit' }, t('home.createButton')));
+
+  const saved = savedSeat();
+  return h('div', { class: 'home' },
+    h('header', { class: 'home-head' }, castleIcon(), h('h1', {}, 'Kings & Castles')),
+    h('p', { class: 'tagline' }, t('home.tagline')),
+    langs,
+    saved ? h('button', { class: 'btn-ready', onclick: () => go(saved) }, t('home.continue', { code: saved.code })) : null,
+    error,
+    h('div', { class: 'home-cards' }, join, create));
+}
