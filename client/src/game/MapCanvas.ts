@@ -11,6 +11,9 @@ export interface Overlay {
   attacks: { from: Pos; to: Pos }[];
   building: Pos[];
   letters: Record<string, string>;
+  /** Grosik's next step: a thick gold frame with an arrow above it, blinking. */
+  hint?: Pos;
+  blink?: boolean;
 }
 
 /** The map: a crisp pixel canvas that scrolls inside its box. Field size can be changed (zoom). */
@@ -193,6 +196,36 @@ export class MapCanvas {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('+', px + f * 0.15, py + f * 0.16);
+    }
+
+    if (o.hint) {
+      const { x, y } = o.hint;
+      const grow = o.blink ? f * 0.12 : 0;
+      ctx.lineWidth = Math.max(3, f / 8);
+      ctx.strokeStyle = PALETTE.ink;
+      ctx.strokeRect(x * f - grow - 2, y * f - grow - 2, f + 2 * grow + 4, f + 2 * grow + 4);
+      ctx.strokeStyle = '#ffd400';
+      ctx.strokeRect(x * f - grow, y * f - grow, f + 2 * grow, f + 2 * grow);
+      // an arrow pointing down at the field (below it when the field is at the top edge)
+      const up = y === 0;
+      const cx = x * f + f / 2;
+      const tip = up ? (y + 1) * f + grow + f * 0.1 : y * f - grow - f * 0.1;
+      const dir = up ? 1 : -1;
+      const len = f * 0.5;
+      ctx.fillStyle = '#ffd400';
+      ctx.strokeStyle = PALETTE.ink;
+      ctx.lineWidth = Math.max(2, f / 16);
+      ctx.beginPath();
+      ctx.moveTo(cx, tip);
+      ctx.lineTo(cx - f * 0.3, tip + dir * len * 0.6);
+      ctx.lineTo(cx - f * 0.12, tip + dir * len * 0.6);
+      ctx.lineTo(cx - f * 0.12, tip + dir * len);
+      ctx.lineTo(cx + f * 0.12, tip + dir * len);
+      ctx.lineTo(cx + f * 0.12, tip + dir * len * 0.6);
+      ctx.lineTo(cx + f * 0.3, tip + dir * len * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
     }
 
     if (o.selected && !s.units.some((u) => samePos(u.pos, o.selected!))) {
