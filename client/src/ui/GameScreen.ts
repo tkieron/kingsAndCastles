@@ -1,4 +1,4 @@
-import type { Connection, ServerMessage } from '../api';
+import type { Link, ServerMessage } from '../api';
 import { h, word } from '../dom';
 import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
@@ -46,7 +46,7 @@ export class GameScreen {
   private barEl?: HTMLElement;
   private ticker: number;
 
-  constructor(private readonly rules: Rules, private readonly conn: Connection, private readonly onLeave: () => void) {
+  constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void) {
     this.map = new MapCanvas((p) => this.clickMap(p));
     this.mapBox.append(this.map.canvas);
     const zoom = h('div', { class: 'zoom' },

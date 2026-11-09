@@ -114,6 +114,10 @@ export const en = {
   'home.turns': 'Number of turns',
   'home.language': 'Język / Language',
   'home.server': 'Server',
+  'home.offline': 'Offline version: the whole game runs in this browser, the computer plays the other kingdoms.',
+  'home.solo': 'Play against the computer',
+  'home.soloLevel': 'Computer kings',
+  'home.soloButton': 'Play!',
   'home.continue': 'Continue your game in room {code}',
 
   // ------------------------------------------------------------ lobby
@@ -259,8 +263,8 @@ export const en = {
   'chronicle.treatyProposed': '{from} offers {to} a {type}.',
   'chronicle.gift': '{from} sent a gift to {to}: {gold} gold, {food} food.',
   'chronicle.freedomBought': '{kingdom} bought freedom from {from}!',
-  'chronicle.priceUp': 'Food is more expensive: {price} gold.',
-  'chronicle.priceDown': 'Food is cheaper: {price} gold.',
+  'chronicle.priceUp': 'Food is more expensive: {to} gold.',
+  'chronicle.priceDown': 'Food is cheaper: {to} gold.',
   'chronicle.meeting': 'Armies met on the road: {attacker} {attackerUnit} ({attackerTotal}) against {defender} {defenderUnit} ({defenderTotal}). {result}',
   'chronicle.meetingTie': 'The armies of {a} and {b} met. Nobody won; both went back.',
   'chronicle.ruinsFound': '{kingdom} found {gold} gold in old ruins!',

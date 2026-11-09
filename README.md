@@ -4,7 +4,8 @@ A simple turn-based strategy and economy game for 4th-grade kids, played in the 
 
 - `engine/` – game rules in pure Java 21 (map, economy, orders, 9-phase turn resolution)
 - `server/` – Spring Boot server holding game state (coming next)
-- `client/` – TypeScript + Canvas PWA (coming next)
+- `client/` – TypeScript + Canvas PWA
+- `browser/` – the engine compiled to JavaScript (TeaVM), for the offline version with no server
 
 ## Engine
 
@@ -85,3 +86,20 @@ Polish version whose tooltips show the English word. Every text the server can s
 reads the engine sources to make sure.
 
 Orders are JSON with an `order` field, for example `{"order":"build","settlementId":3,"building":"MARKET"}`.
+
+## Offline version (no server)
+
+The whole game can also run inside one web page: the Java engine is compiled to JavaScript with
+[TeaVM](https://teavm.org) (`browser/`), and `client/src/local/` plays the server's part (rooms, Ready, the turn
+clock), so the rules and the computer kings are exactly the same as on the server. One child plays against six
+computer kings; the game is kept on the device and comes back after a reload.
+
+```bash
+mvn -B -pl browser -am package     # browser/target/js/kc-engine.js
+cd client
+npm run build:offline              # dist-offline/kings-and-castles-offline.html
+```
+
+The result is a single HTML file that opens straight from the disk (double click), with no internet needed except
+for the web fonts. Any build of the client that includes the engine also plays offline with `?server=local` in the
+page address.

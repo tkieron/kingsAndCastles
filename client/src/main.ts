@@ -1,5 +1,5 @@
 import './style.css';
-import { api, Connection, saveSeat, type Seat, type ServerMessage } from './api';
+import { api, connect, saveSeat, type Link, type Seat, type ServerMessage } from './api';
 import { h, installTooltips } from './dom';
 import { getLang, setLang, t } from './i18n';
 import type { Rules } from './types';
@@ -9,7 +9,7 @@ import { LobbyScreen } from './ui/LobbyScreen';
 
 const app = document.getElementById('app')!;
 let rules: Rules | null = null;
-let conn: Connection | null = null;
+let conn: Link | null = null;
 let game: GameScreen | null = null;
 let lobby: LobbyScreen | null = null;
 let seat: Seat | null = null;
@@ -40,7 +40,7 @@ function enter(s: Seat): void {
   seat = s;
   clear();
   app.append(h('p', { class: 'loading' }, t('error.sayHelloFirst')));
-  conn = new Connection(s, onMessage, (on) => game?.setOnline(on));
+  conn = connect(s, onMessage, (on) => game?.setOnline(on));
 }
 
 async function onMessage(m: ServerMessage): Promise<void> {

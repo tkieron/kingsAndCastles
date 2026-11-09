@@ -1,4 +1,4 @@
-import { api, ApiError, saveSeat, savedSeat, type Seat } from '../api';
+import { api, ApiError, isLocal, saveSeat, savedSeat, type Seat } from '../api';
 import { h } from '../dom';
 import { getLang, setLang, t, type Lang } from '../i18n';
 import { inkOn } from '../game/sprites';
@@ -93,12 +93,51 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   h('label', { class: 'col' }, t('lobby.emptyLevel'), emptySel),
   h('button', { class: 'btn', type: 'submit' }, t('home.createButton')));
 
+  // offline version: one child against six computer kings, straight into the game
+  const soloName = h('input', { class: 'input', maxlength: 20, autocomplete: 'nickname', 'aria-label': t('home.name') });
+  const soloTurn = h('select', { class: 'input', 'aria-label': t('home.turnLength') },
+    ...TURN_LENGTHS.map((s) => h('option', { value: s, selected: s === 0 }, s ? t('home.seconds', { n: s }) : t('home.noLimit'))));
+  const soloTurns = h('select', { class: 'input', 'aria-label': t('home.turns') },
+    ...[10, 15, 20, 25, 30].map((n) => h('option', { value: n, selected: n === 20 }, String(n))));
+  const soloLevel = h('select', { class: 'input', 'aria-label': t('home.soloLevel') },
+    ...LEVELS.slice(1).map((l) => h('option', { value: l, selected: l === 'AI_ADVANCED' }, t(`ctl.${l}`))));
+  const solo = h('form', {
+    class: 'card-light col gap',
+    onsubmit: async (e: Event) => {
+      e.preventDefault();
+      error.textContent = '';
+      try {
+        const level = soloLevel.value as Controller;
+        const r = await api.create({
+          turnSeconds: Number(soloTurn.value),
+          maxTurns: Number(soloTurns.value),
+          seats: ['HUMAN', level, level, level, level, level, level],
+          emptySeatLevel: level,
+        });
+        const joined = await api.join(r.code, soloName.value);
+        await api.start(r.code, r.hostToken);
+        const seat = { code: r.code, hostToken: r.hostToken, token: joined.token };
+        saveSeat(seat);
+        go(seat);
+      } catch (err) {
+        fail(err);
+      }
+    },
+  },
+  h('h2', {}, t('home.solo')),
+  h('label', { class: 'col' }, t('home.name'), soloName),
+  h('div', { class: 'row wrap' }, h('label', { class: 'col' }, t('home.turnLength'), soloTurn), h('label', { class: 'col' }, t('home.turns'), soloTurns)),
+  h('label', { class: 'col' }, t('home.soloLevel'), soloLevel),
+  h('button', { class: 'btn-ready', type: 'submit' }, t('home.soloButton')));
+
+  const offline = isLocal();
   const saved = savedSeat();
   return h('div', { class: 'home' },
     h('header', { class: 'home-head' }, castleIcon(), h('h1', {}, 'Kings & Castles')),
     h('p', { class: 'tagline' }, t('home.tagline')),
     langs,
+    offline ? h('p', { class: 'small muted center' }, t('home.offline')) : null,
     saved ? h('button', { class: 'btn-ready', onclick: () => go(saved) }, t('home.continue', { code: saved.code })) : null,
     error,
-    h('div', { class: 'home-cards' }, join, create));
+    h('div', { class: 'home-cards' }, offline ? solo : join, create));
 }
