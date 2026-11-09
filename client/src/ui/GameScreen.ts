@@ -128,6 +128,7 @@ export class GameScreen {
             // a new turn: a short summary card instead of a long Chronicle, then Grosik's next step
             this.tab = 'orders';
             this.selection = null;
+            this.backToMap();
             if (old && this.me()) this.showSummary(old);
           }
         }
@@ -241,6 +242,15 @@ export class GameScreen {
     if (sel.kind === 'tile') return sel.pos;
     if (sel.kind === 'settlement') return s.settlements.find((x) => x.id === sel.id)?.pos;
     return s.units.find((u) => u.id === sel.id)?.pos;
+  }
+
+  /** A new turn: back to the top of the page, the map on the child's castle, and Grosik's new step flashing. */
+  private backToMap(): void {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    this.centreOnCastle();
+    this.quest.classList.remove('flash');
+    void this.quest.offsetWidth;
+    this.quest.classList.add('flash');
   }
 
   private closeSheet(): void {
@@ -960,6 +970,7 @@ export class GameScreen {
     const close = () => {
       this.summary?.remove();
       this.summary = undefined;
+      this.backToMap();
       window.removeEventListener('keydown', onKey);
     };
     const onKey = (e: KeyboardEvent) => {
