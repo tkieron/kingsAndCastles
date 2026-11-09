@@ -85,3 +85,8 @@ Polish version whose tooltips show the English word. Every text the server can s
 reads the engine sources to make sure.
 
 Orders are JSON with an `order` field, for example `{"order":"build","settlementId":3,"building":"MARKET"}`.
+
+## Deployment
+
+The client is published to GitHub Pages by `.github/workflows/pages.yml`; the server runs on a small VPS behind Caddy.
+Step-by-step instructions (in Polish) are in [`deploy/README.md`](deploy/README.md).
