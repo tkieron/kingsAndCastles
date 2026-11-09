@@ -62,3 +62,26 @@ Errors come back as `400 {"error":"error.key"}`; the client translates the key.
 The client sends `{"type":"hello","code":"123456","token":"…"}` (or `hostToken` for the host's screen), then
 `orders`, `ready` and `endTurn`. The server pushes `lobby`, `state` (after every turn, with the Chronicle
 and the child's own Ledger), `ready`, `problems`, `ordersOk` and `error`. Details are in `GameSocket.java`.
+
+## Client
+
+`client/` is the game in the browser: TypeScript and a Canvas map, no framework. It installs as an app (PWA)
+on phones and computers. All pixel art is drawn in code (`client/src/game/sprites.ts`), so there are no image files
+except the app icon, which `scripts/make-icons.mjs` draws during the build.
+
+```bash
+cd client
+npm install
+npm run dev          # http://localhost:5173, talks to the server on http://localhost:8080
+npm test             # rules and texts
+npm run build        # dist/ is ready for GitHub Pages
+```
+
+The server address comes from `?server=https://…` in the page address (remembered on the device), or from
+`VITE_SERVER_URL` at build time.
+
+Languages: English with Polish tooltips (hover with the mouse, or hold a finger on a dotted word), or the full
+Polish version whose tooltips show the English word. Every text the server can send has a translation; a test
+reads the engine sources to make sure.
+
+Orders are JSON with an `order` field, for example `{"order":"build","settlementId":3,"building":"MARKET"}`.
