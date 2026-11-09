@@ -100,7 +100,7 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   const soloTurns = h('select', { class: 'input', 'aria-label': t('home.turns') },
     ...[10, 15, 20, 25, 30].map((n) => h('option', { value: n, selected: n === 20 }, String(n))));
   const soloLevel = h('select', { class: 'input', 'aria-label': t('home.soloLevel') },
-    ...LEVELS.slice(1).map((l) => h('option', { value: l, selected: l === 'AI_ADVANCED' }, t(`ctl.${l}`))));
+    ...LEVELS.slice(1).map((l) => h('option', { value: l, selected: l === 'AI_BEGINNER' }, t(`ctl.${l}`))));
   const solo = h('form', {
     class: 'card-light col gap',
     onsubmit: async (e: Event) => {
@@ -139,5 +139,6 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
     offline ? h('p', { class: 'small muted center' }, t('home.offline')) : null,
     saved ? h('button', { class: 'btn-ready', onclick: () => go(saved) }, t('home.continue', { code: saved.code })) : null,
     error,
-    h('div', { class: 'home-cards' }, offline ? solo : join, create));
+    // offline there is one child on one device: only "play against the computer", nothing to set up for a host
+    h('div', { class: 'home-cards' }, offline ? solo : join, offline ? null : create));
 }

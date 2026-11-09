@@ -81,6 +81,13 @@ npm run build        # dist/ is ready for GitHub Pages
 The server address comes from `?server=https://…` in the page address (remembered on the device), or from
 `VITE_SERVER_URL` at build time.
 
+The child is never left wondering what to do: Grosik, the treasurer, shows one next step at a time above the map
+(build a market, a farm, a gold mine, walk to the ruins, end the turn), with a blinking yellow frame on the map and
+"Show me", which selects the right castle, village, field or army. The suggestions come from `src/game/advisor.ts`
+and are only hints: the child can give any order. The first game starts with three short cards (story, goal,
+Grosik); the full tour of the screen is behind the "?" button. After every turn a short card shows gold and food
+before and after, and what happened to the child's kingdom.
+
 Languages: English with Polish tooltips (hover with the mouse, or hold a finger on a dotted word), or the full
 Polish version whose tooltips show the English word. Every text the server can send has a translation; a test
 reads the engine sources to make sure.

@@ -1,27 +1,29 @@
 import type { Link, ServerMessage } from '../api';
-import { h, word } from '../dom';
+import { append, h, word } from '../dom';
 import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
 import {
   buildOptions, buildingCost, goldCost, improvementAt, key, neighbours, payback, reachable, samePos,
   terrainAt, territory, unitRule,
 } from '../game/rules';
+import { advise, current, type Step } from '../game/advisor';
 import { inkOn } from '../game/sprites';
-import { Tutorial, tutorialSeen } from './Tutorial';
+import { INTRO, TOUR, Tutorial, tutorialSeen } from './Tutorial';
 import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season } from '../game/text';
 import type {
   BuildingType, GameState, KingdomView, Order, Pos, Problem, Rules, SettlementView, TaxRate, TreatyType, UnitType, UnitView,
 } from '../types';
 
+
 type Tab = 'orders' | 'ledger' | 'diplomacy' | 'market' | 'chronicle';
 type Selection = { kind: 'unit'; id: number } | { kind: 'settlement'; id: number } | { kind: 'tile'; pos: Pos } | null;
 
-const TABS: { id: Tab; word: Key }[] = [
-  { id: 'orders', word: 'w.orders' },
-  { id: 'ledger', word: 'w.ledger' },
-  { id: 'diplomacy', word: 'w.diplomacy' },
-  { id: 'market', word: 'w.market' },
-  { id: 'chronicle', word: 'w.chronicle' },
+const TABS: { id: Tab; word: Key; from: number }[] = [
+  { id: 'orders', word: 'w.orders', from: 1 },
+  { id: 'ledger', word: 'w.ledger', from: 1 },
+  { id: 'diplomacy', word: 'w.diplomacy', from: 3 },
+  { id: 'market', word: 'w.market', from: 3 },
+  { id: 'chronicle', word: 'w.chronicle', from: 1 },
 ];
 const TREATIES: TreatyType[] = ['PACT', 'TRADE', 'ALLIANCE'];
 const TAXES: TaxRate[] = ['LOW', 'MEDIUM', 'HIGH'];
@@ -47,6 +49,16 @@ export class GameScreen {
   private barEl?: HTMLElement;
   private ticker: number;
   private tutorial?: Tutorial;
+  /** Grosik's steps for this turn; the first one not done is lit up on the map and in the panel. */
+  private steps: Step[] = [];
+  private readonly quest = h('section', { class: 'quest', 'aria-live': 'polite' });
+  /** The choices for what the child clicked, right next to it on the map (a sheet from the bottom on a phone). */
+  private readonly sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-live': 'polite' });
+  private readonly mapWrap = h('div', { class: 'map-wrap' });
+  private summary?: HTMLElement;
+  /** Tabs the child has opened, so a tab that appears later can say "New!" until then. */
+  private readonly seenTabs = new Set<Tab>(['orders', 'ledger', 'chronicle']);
+  private blink = false;
 
   constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void) {
     this.map = new MapCanvas((p) => this.clickMap(p));
@@ -54,19 +66,31 @@ export class GameScreen {
     const zoom = h('div', { class: 'zoom' },
       h('button', { class: 'btn small', 'aria-label': t('game.zoomOut'), title: t('game.zoomOut'), onclick: () => this.zoom(-11) }, '−'),
       h('button', { class: 'btn small', 'aria-label': t('game.zoomIn'), title: t('game.zoomIn'), onclick: () => this.zoom(11) }, '+'));
-    this.board.append(this.mapBox, zoom, this.phases());
+    this.mapWrap.append(this.mapBox, zoom, this.sheet);
+    this.board.append(this.quest, this.mapWrap, this.phases());
+    this.mapBox.addEventListener('scroll', () => this.placeSheet(), { passive: true });
+    window.addEventListener('keydown', this.onKey);
     this.root.append(this.header, h('div', { class: 'game-body' }, this.board, this.panel));
     this.map.setFieldSize(33);
     this.ticker = window.setInterval(() => this.tick(), 500);
   }
 
+  private readonly onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && this.selection && !this.summary && !this.tutorial) this.closeSheet();
+  };
+
   destroy(): void {
     window.clearInterval(this.ticker);
+    window.removeEventListener('keydown', this.onKey);
     this.tutorial?.close();
+    this.summary?.remove();
   }
 
-  /** The guided tour of this screen; it opens by itself the first time a child plays. */
-  private showTutorial(): void {
+  /**
+   * The first time a child plays: three short cards (story, goal, Grosik), then straight into the game.
+   * The "?" button opens the full tour of the screen.
+   */
+  private showTutorial(full: boolean): void {
     const me = this.me();
     if (!me || this.tutorial) return;
     const b = this.rules.balance;
@@ -75,9 +99,10 @@ export class GameScreen {
       peace: (b.peaceTurns ?? 5) + 1,
       castles: b.militaryWinKingdoms ?? 4,
       gold: b.economicWinGold ?? 300,
+      turns: this.state?.maxTurns ?? 20,
     }, () => {
       this.tutorial = undefined;
-    });
+    }, full ? TOUR : INTRO);
   }
 
   setOnline(on: boolean): void {
@@ -91,6 +116,8 @@ export class GameScreen {
     switch (m.type) {
       case 'state': {
         const before = this.state?.turn;
+        const was = this.me();
+        const old = was ? { gold: was.gold ?? 0, food: was.food ?? 0 } : undefined;
         this.host = !!m.host;
         this.state = m.state;
         if (before === undefined || m.state.turn !== before) {
@@ -98,19 +125,17 @@ export class GameScreen {
           this.problems = [];
           this.saved = true;
           if (before !== undefined) {
-            this.tab = 'chronicle';
+            // a new turn: a short summary card instead of a long Chronicle, then Grosik's next step
+            this.tab = 'orders';
             this.selection = null;
-            this.toast = t('game.newTurn');
-            window.setTimeout(() => {
-              this.toast = '';
-              this.renderPanel();
-            }, 5000);
+            this.backToMap();
+            if (old && this.me()) this.showSummary(old);
           }
         }
         if (before === undefined && this.me()) this.centreOnCastle();
         this.render();
         if (before === undefined && this.me() && !m.state.finished && !tutorialSeen()) {
-          window.setTimeout(() => this.showTutorial(), 300);
+          window.setTimeout(() => this.showTutorial(false), 300);
         }
         return;
       }
@@ -171,7 +196,15 @@ export class GameScreen {
     if (this.amReady()) return;
     this.draft = this.draft.filter((o) => !same(o));
     if (order) this.draft.push(order);
+    // an order was given for the clicked thing: close its choices, so Grosik's next step is what the child sees
+    if (order && CLOSES.has(order.order)) this.selection = null;
     this.sync();
+    if (order && CLOSES.has(order.order)) {
+      this.quest.classList.remove('flash');
+      void this.quest.offsetWidth;
+      this.quest.classList.add('flash');
+      if (phone()) this.quest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   private sync(): void {
@@ -186,11 +219,127 @@ export class GameScreen {
 
   private centreOnCastle(): void {
     const castle = this.state?.settlements.find((s) => s.castle && s.owner === this.state?.me);
-    if (!castle) return;
+    if (castle) this.centreOn(castle.pos);
+  }
+
+  /** Scrolls the map so the field is in view: in the middle, or in the upper part on a phone (the sheet covers the bottom). */
+  private centreOn(p: Pos): void {
     requestAnimationFrame(() => {
       const f = this.map.fieldSize();
-      this.mapBox.scrollLeft = castle.pos.x * f - this.mapBox.clientWidth / 2;
-      this.mapBox.scrollTop = castle.pos.y * f - this.mapBox.clientHeight / 2;
+      const up = phone() && this.selection ? 0.25 : 0.5;
+      this.mapBox.scrollTo({
+        left: p.x * f + f / 2 - this.mapBox.clientWidth / 2,
+        top: p.y * f + f / 2 - this.mapBox.clientHeight * up,
+        behavior: 'smooth',
+      });
+    });
+  }
+
+  private selectedPos(): Pos | undefined {
+    const s = this.state;
+    const sel = this.selection;
+    if (!s || !sel) return undefined;
+    if (sel.kind === 'tile') return sel.pos;
+    if (sel.kind === 'settlement') return s.settlements.find((x) => x.id === sel.id)?.pos;
+    return s.units.find((u) => u.id === sel.id)?.pos;
+  }
+
+  /** A new turn: back to the top of the page, the map on the child's castle, and Grosik's new step flashing. */
+  private backToMap(): void {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    this.centreOnCastle();
+    this.quest.classList.remove('flash');
+    void this.quest.offsetWidth;
+    this.quest.classList.add('flash');
+  }
+
+  private closeSheet(): void {
+    this.selection = null;
+    this.render();
+  }
+
+  /** The choices for the selected thing, in a card next to it. */
+  private renderSheet(): void {
+    const s = this.state;
+    this.sheet.replaceChildren();
+    const show = !!s && !!this.me() && !!this.selection && !s.finished;
+    this.sheet.hidden = !show;
+    this.mapWrap.classList.toggle('sheet-open', show);
+    if (!show) return;
+    this.sheet.append(
+      h('button', { class: 'sheet-close', 'aria-label': t('game.close'), title: t('game.close'), onclick: () => this.closeSheet() }, '✕'),
+      this.selectionView());
+    requestAnimationFrame(() => this.placeSheet());
+  }
+
+  /** On a computer the card stands beside the selected field (right of it, or left when there is no room). */
+  private placeSheet(): void {
+    const at = this.selectedPos();
+    if (this.sheet.hidden || !at) return;
+    if (phone()) {
+      this.sheet.style.left = '';
+      this.sheet.style.top = '';
+      return;
+    }
+    const f = this.map.fieldSize();
+    const border = 4;
+    const x = at.x * f - this.mapBox.scrollLeft + border;
+    const y = at.y * f - this.mapBox.scrollTop + border;
+    const w = this.sheet.offsetWidth;
+    const hgt = this.sheet.offsetHeight;
+    const room = this.mapWrap.clientWidth;
+    // beside an army, keep clear of the fields it can walk to
+    const gap = this.selection?.kind === 'unit' ? f * 2 + 14 : 14;
+    let left = x + f + gap;
+    if (left + w > room - 8) left = x - w - gap;
+    left = Math.max(8, Math.min(room - w - 8, left));
+    const top = Math.max(8, Math.min(this.mapWrap.clientHeight - hgt - 8, y - 24));
+    this.sheet.style.left = `${left}px`;
+    this.sheet.style.top = `${top}px`;
+  }
+
+  /** Solo game: the child is the only human, so "Ready" simply ends the turn. */
+  private solo(): boolean {
+    return (this.state?.kingdoms.filter((k) => k.controller === 'HUMAN' && !k.autopilot).length ?? 0) <= 1;
+  }
+
+  /** Where Grosik's current step points on the map. */
+  private hintPos(step?: Step): Pos | undefined {
+    const s = this.state!;
+    const tg = step?.target;
+    if (!tg) return undefined;
+    if (tg.kind === 'settlement') return s.settlements.find((x) => x.id === tg.id)?.pos;
+    if (tg.kind === 'tile') return tg.pos;
+    if (tg.kind === 'unit') {
+      const sel = this.selection;
+      if (sel?.kind === 'unit' && sel.id === tg.id) return tg.dest;
+      return s.units.find((u) => u.id === tg.id)?.pos;
+    }
+    return undefined;
+  }
+
+  /** "Show me": selects the thing Grosik talks about and brings it into view. */
+  private showStep(step: Step): void {
+    const tg = step.target;
+    if (tg.kind === 'settlement') this.selection = { kind: 'settlement', id: tg.id };
+    if (tg.kind === 'tile') this.selection = { kind: 'tile', pos: tg.pos };
+    if (tg.kind === 'unit') this.selection = { kind: 'unit', id: tg.id };
+    if (tg.kind === 'tab') {
+      this.tab = tg.tab;
+      this.seenTabs.add(this.tab);
+    }
+    this.render();
+    const at = this.hintPos(step) ?? (tg.kind === 'unit' ? this.state!.units.find((u) => u.id === tg.id)?.pos : undefined);
+    if (at) this.centreOn(at);
+    this.bringIntoView(tg.kind === 'ready' || tg.kind === 'tab' ? this.panel.querySelector<HTMLElement>(tg.kind === 'ready' ? '.btn-ready' : '.tab-body') : this.mapBox);
+  }
+
+  /** On a phone the page scrolls: brings the map (with its sheet) or a part of the panel into view. */
+  private bringIntoView(el: HTMLElement | null): void {
+    requestAnimationFrame(() => {
+      if (!el) return;
+      if (phone()) el.scrollIntoView({ behavior: 'smooth', block: el === this.mapBox ? 'start' : 'center' });
+      else el.scrollIntoView({ block: 'nearest' });
     });
   }
 
@@ -248,13 +397,17 @@ export class GameScreen {
     } else {
       this.selection = { kind: 'tile', pos: p };
     }
-    this.tab = 'orders';
     this.render();
+    if (this.selection && phone()) {
+      this.centreOn(p);
+      this.bringIntoView(this.mapBox);
+    }
   }
 
   // ------------------------------------------------------------------ drawing
 
   private render(): void {
+    this.steps = this.state && this.me() ? advise(this.state, this.rules, this.draft, this.amReady()) : [];
     this.renderHeader();
     this.renderMap();
     this.renderPanel();
@@ -262,6 +415,8 @@ export class GameScreen {
 
   private tick(): void {
     const s = this.state;
+    this.blink = !this.blink;
+    if (s && !this.amReady() && current(this.steps)) this.renderMap();
     if (!s || !this.timeEl) return;
     if (s.turnEndsAt) {
       const left = s.turnEndsAt - Date.now();
@@ -302,7 +457,7 @@ export class GameScreen {
       })),
       ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
       ...(this.me() ? [h('button', {
-        class: 'btn small help', title: t('tut.help'), 'aria-label': t('tut.help'), onclick: () => this.showTutorial(),
+        class: 'btn small help', title: t('tut.help'), 'aria-label': t('tut.help'), onclick: () => this.showTutorial(true),
       }, '?')] : []),
     );
     this.tick();
@@ -342,11 +497,18 @@ export class GameScreen {
     } else if (sel?.kind === 'tile') {
       overlay.selected = sel.pos;
     }
+    overlay.hint = this.amReady() ? undefined : this.hintPos(current(this.steps));
+    overlay.blink = this.blink;
+    // the hinted field, also for automated play-throughs of the guided turns
+    if (overlay.hint) this.map.canvas.dataset.hint = `${overlay.hint.x},${overlay.hint.y}`;
+    else delete this.map.canvas.dataset.hint;
     this.map.update(s, overlay);
   }
 
+  /** The nine phases of a turn: folded away, for children who want to know why things happened in that order. */
   private phases(): HTMLElement {
-    return h('div', { class: 'phases' },
+    return h('details', { class: 'phases' },
+      h('summary', { class: 'muted small' }, t('game.phasesShow')),
       h('span', { class: 'muted small' }, t('game.phases')),
       h('div', { class: 'phase-row' }, ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) =>
         h('div', { class: 'phase' }, h('b', {}, String(n)), h('span', {}, t(`phase.${n}`))))));
@@ -355,6 +517,8 @@ export class GameScreen {
   private renderPanel(): void {
     const s = this.state;
     this.panel.replaceChildren();
+    this.renderQuest();
+    this.renderSheet();
     if (!s) return;
     if (this.toast) this.panel.append(h('div', { class: 'toast', role: 'status' }, this.toast));
     if (s.finished) this.panel.append(this.gameOver());
@@ -382,18 +546,26 @@ export class GameScreen {
           h('div', { class: 'row' }, moodFace(me.mood), word(`mood.${me.mood}`)),
           h('span', { class: 'muted small' }, word(`tax.${me.tax ?? 'LOW'}`)))),
       h('div', { class: 'small muted' }, h('b', { class: free < 0 ? 'bad' : 'gold' }, t('game.freeGold', { n: free }))),
-      h('nav', { class: 'tabs', 'aria-label': 'Panel' }, ...TABS.map((tb) =>
-        h('button', { class: `tab${this.tab === tb.id ? ' on' : ''}`, onclick: () => { this.tab = tb.id; this.renderPanel(); } }, word(tb.word)))),
+      this.goal(),
+      h('nav', { class: 'tabs', 'aria-label': 'Panel' }, ...TABS.filter((tb) => s.turn >= tb.from).map((tb) =>
+        h('button', {
+          class: `tab${this.tab === tb.id ? ' on' : ''}`,
+          onclick: () => {
+            this.tab = tb.id;
+            this.seenTabs.add(tb.id);
+            this.renderPanel();
+          },
+        }, word(tb.word), this.seenTabs.has(tb.id) ? null : h('span', { class: 'new' }, t('game.tabNew'))))),
     );
     const body = h('section', { class: 'tab-body' });
     switch (this.tab) {
-      case 'orders': body.append(this.selectionView()); break;
+      case 'orders': body.append(h('p', { class: 'muted small' }, t('game.clickMap'))); break;
       case 'ledger': body.append(this.ledgerView()); break;
       case 'diplomacy': body.append(this.diplomacyView()); break;
       case 'market': body.append(this.marketView()); break;
       case 'chronicle': body.append(this.chronicleView()); break;
     }
-    this.panel.append(body, this.ordersList(), this.grosik(), this.readyBox());
+    this.panel.append(body, this.ordersList(), this.readyBox());
   }
 
   // ------------------------------------------------------------------ tab: selection
@@ -401,7 +573,7 @@ export class GameScreen {
   private selectionView(): HTMLElement {
     const s = this.state!;
     const sel = this.selection;
-    if (!sel) return h('p', { class: 'muted' }, t('game.clickMap'));
+    if (!sel) return h('div');
     if (sel.kind === 'settlement') {
       const st = s.settlements.find((x) => x.id === sel.id);
       return st ? this.settlementView(st) : h('div');
@@ -421,14 +593,23 @@ export class GameScreen {
         h('span', { class: 'title' }, placeName(st.name)),
         h('span', { class: 'small' }, word(st.castle ? 'w.castle' : 'w.village'), ` · ${st.families}/${st.capacity} `, word('w.families'))));
     if (st.owner !== me.id) {
-      parchment.append(h('p', {}, t('sel.notYours', { name: kingdomName(st.owner) })));
+      parchment.append(h('p', {}, t('sel.notYours', { name: kingdomName(st.owner) })), this.nothingHere());
       return parchment;
     }
+    const step = current(this.steps);
     const army = this.unitAt(st.pos);
     if (army && army.owner === me.id) {
-      parchment.append(h('button', { class: 'btn small', onclick: () => this.clickMap(st.pos) },
-        t('sel.armyHere', { unit: t(`u.${army.type}`) })));
+      const wanted = step?.target.kind === 'unit' && step.target.id === army.id;
+      parchment.append(h('button', {
+        class: `option${wanted ? ' suggested' : ''}`,
+        onclick: () => {
+          this.selection = { kind: 'unit', id: army.id };
+          this.render();
+        },
+      }, h('div', { class: 'opt-title' }, t('sel.armyHere', { unit: t(`u.${army.type}`) })),
+      wanted ? h('div', { class: 'opt-sub star' }, `★ ${t('sel.suggested')}`) : null));
     }
+    const free = (me.gold ?? 0) - this.reserved();
     parchment.append(h('div', { class: 'small' }, `${t('sel.buildings')}: `,
       ...(st.buildings.length ? st.buildings.flatMap((b, i) => [i ? ', ' : '', word(`b.${b}`)]) : [t('sel.none')])));
     if (st.castle && me.palacePaid > 0 && !me.palaceDone) {
@@ -438,39 +619,51 @@ export class GameScreen {
     const chosenBuild = this.draft.find((o) => o.order === 'build' && o.settlementId === st.id);
     parchment.append(h('div', { class: 'label dark' }, t('sel.build')));
     const builds = h('div', { class: 'grid2' });
-    for (const b of buildOptions(this.rules, s, st, me.palaceDone)) {
+    // the building Grosik suggests comes first and glows; ones the child cannot pay for say how much is missing
+    const suggested = step?.target.kind === 'settlement' && step.target.id === st.id ? step.target.building : undefined;
+    const options = buildOptions(this.rules, s, st, me.palaceDone).sort((a, b) => Number(b === suggested) - Number(a === suggested));
+    for (const b of options) {
       const cost = buildingCost(this.rules, b);
       const pb = payback(this.rules, b);
       const chosen = chosenBuild?.order === 'build' && chosenBuild.building === b;
+      const others = chosenBuild ? goldCost(chosenBuild, this.rules, s) : 0;
+      const short = chosen ? 0 : cost - (free + others);
+      const glow = b === suggested && !chosen;
       builds.append(h('button', {
-        class: `option${chosen ? ' chosen' : ''}`,
-        disabled: locked,
+        class: `option${chosen ? ' chosen' : ''}${glow ? ' suggested' : ''}`,
+        disabled: locked || short > 0,
         'data-tip': tipText(`b.${b}`),
         onclick: () => this.setOrder((o) => o.order === 'build' && o.settlementId === st.id,
           chosen ? undefined : { order: 'build', settlementId: st.id, building: b }),
       },
-      h('div', { class: 'opt-title' }, `${t(`b.${b}`)} · ${t('sel.cost', { n: cost })}`),
-      h('div', { class: 'opt-sub' }, pb ? t('sel.payback', { n: pb }) : t(`bd.${b}`))));
+      h('div', { class: 'opt-title' }, `${chosen ? '✔ ' : ''}${t(`b.${b}`)} · ${t('sel.cost', { n: cost })}`),
+      h('div', { class: 'opt-sub' }, short > 0 ? t('sel.short', { n: short }) : pb ? t('sel.payback', { n: pb }) : t(`bd.${b}`)),
+      glow ? h('div', { class: 'opt-sub star' }, `★ ${t('sel.suggested')}`) : null));
     }
     parchment.append(builds);
 
     const chosenUnit = this.draft.find((o) => o.order === 'recruit' && o.settlementId === st.id);
-    parchment.append(h('div', { class: 'label dark' }, t('sel.recruit')));
     const units = h('div', { class: 'grid2' });
     for (const u of this.rules.units) {
       const noBarracks = u.needsBarracks && !st.buildings.includes('BARRACKS');
       const chosen = chosenUnit?.order === 'recruit' && chosenUnit.unit === u.type;
+      const others = chosenUnit ? goldCost(chosenUnit, this.rules, s) : 0;
+      const short = chosen ? 0 : u.cost - (free + others);
       units.append(h('button', {
         class: `option${chosen ? ' chosen' : ''}`,
-        disabled: locked || noBarracks,
+        disabled: locked || noBarracks || short > 0,
         'data-tip': tipText(`u.${u.type}`),
         onclick: () => this.setOrder((o) => o.order === 'recruit' && o.settlementId === st.id,
           chosen ? undefined : { order: 'recruit', settlementId: st.id, unit: u.type }),
       },
       h('div', { class: 'opt-title' }, `${t(`u.${u.type}`)} · ${t('sel.cost', { n: u.cost })}`),
-      h('div', { class: 'opt-sub' }, noBarracks ? t('sel.needsBarracks') : `${t(`ud.${u.type}`)} · −${u.upkeep}/${t('w.turn').toLowerCase()}`)));
+      h('div', { class: 'opt-sub' }, noBarracks ? t('sel.needsBarracks') : short > 0 ? t('sel.short', { n: short })
+        : `${t(`ud.${u.type}`)} · −${u.upkeep}/${t('w.turn').toLowerCase()}`)));
     }
-    parchment.append(units);
+    // training an army is a later lesson: folded away, so the buildings stay the main choice
+    const recruitOpen = !!chosenUnit || s.turn > (this.rules.balance.peaceTurns ?? 5);
+    parchment.append(h('details', { class: 'recruit', open: recruitOpen },
+      h('summary', { class: 'label dark' }, t('sel.recruit')), units));
     return parchment;
   }
 
@@ -481,7 +674,12 @@ export class GameScreen {
       h('div', { class: 'row spread' }, h('span', { class: 'title' }, word(`u.${u.type}`)), h('span', { class: 'small' }, kingdomName(u.owner))),
       h('div', { class: 'small' }, t('sel.unitStats', { a: rule.attack, d: rule.defense, m: rule.move })),
       h('div', { class: 'small' }, t(`ud.${u.type}`)));
-    if (u.owner !== s.me) return box;
+    if (u.owner !== s.me) {
+      box.append(this.nothingHere());
+      return box;
+    }
+    const step = current(this.steps);
+    if (step?.target.kind === 'unit' && step.target.id === u.id) box.append(h('p', { class: 'suggested-text' }, `★ ${t('adv.clickDest')}`));
     box.append(h('p', { class: 'small' }, t('sel.moveHint')));
     if (u.type !== 'SETTLER') box.append(h('p', { class: 'small' }, t('sel.attackHint')));
     const planned = this.draft.some((o) => (o.order === 'move' || o.order === 'attack') && o.unitId === u.id);
@@ -506,25 +704,33 @@ export class GameScreen {
 
   private tileView(p: Pos): HTMLElement {
     const s = this.state!;
-    const box = h('div', { class: 'parchment' }, h('div', { class: 'title' }, t('game.tile', { x: p.x, y: p.y })));
-    const owner = territory(s)[p.y][p.x];
     const tc = terrainAt(s.map, p);
+    const box = h('div', { class: 'parchment' },
+      h('div', { class: 'title' }, t(`terrain.${tc}`)),
+      h('p', { class: 'small' }, t(`terrainHint.${tc}`)));
+    const owner = territory(s)[p.y][p.x];
+    const step = current(this.steps);
+    const free = (this.me()?.gold ?? 0) - this.reserved();
     if (s.map.ruins.some((r) => samePos(r, p))) box.append(h('p', {}, t('sel.ruins')));
     if (owner && owner !== s.me) box.append(h('p', {}, t('sel.notYours', { name: kingdomName(owner) })));
     if (owner === s.me && !improvementAt(s.map, p)) {
       const offer = (b: BuildingType, label: Key) => {
         const chosen = this.draft.some((o) => o.order === 'buildOnTile' && samePos(o.pos, p));
+        const cost = buildingCost(this.rules, b);
+        const short = chosen ? 0 : cost - free;
+        const glow = !chosen && step?.target.kind === 'tile' && samePos(step.target.pos, p);
         box.append(h('button', {
-          class: `option${chosen ? ' chosen' : ''}`, disabled: this.amReady(), 'data-tip': tipText(`b.${b}`),
+          class: `option${chosen ? ' chosen' : ''}${glow ? ' suggested' : ''}`, disabled: this.amReady() || short > 0, 'data-tip': tipText(`b.${b}`),
           onclick: () => this.setOrder((o) => o.order === 'buildOnTile' && samePos(o.pos, p),
             chosen ? undefined : { order: 'buildOnTile', pos: p, building: b }),
-        }, h('div', { class: 'opt-title' }, `${t(label)} · ${t('sel.cost', { n: buildingCost(this.rules, b) })}`),
-        h('div', { class: 'opt-sub' }, t(`bd.${b}`))));
+        }, h('div', { class: 'opt-title' }, `${chosen ? '✔ ' : ''}${t(label)} · ${t('sel.cost', { n: cost })}`),
+        h('div', { class: 'opt-sub' }, short > 0 ? t('sel.short', { n: short }) : t(`bd.${b}`)),
+        glow ? h('div', { class: 'opt-sub star' }, `★ ${t('sel.suggested')}`) : null));
       };
       if (tc === 'H') offer('GOLD_MINE', 'sel.mine');
       if (tc === 'R') offer('BRIDGE', 'sel.bridge');
     }
-    if (box.childElementCount === 1) box.append(h('p', { class: 'small' }, t('sel.empty')));
+    if (!box.querySelector('.option')) box.append(this.nothingHere());
     return box;
   }
 
@@ -687,19 +893,117 @@ export class GameScreen {
     return list;
   }
 
-  private grosik(): HTMLElement {
+  /**
+   * Grosik's card above the map: what to do now, why it is worth it, and a "Show me" button.
+   * Steps already done this turn stay on the card with a tick, so the child sees the turn's progress.
+   */
+  private renderQuest(): void {
+    const s = this.state;
+    this.quest.replaceChildren();
+    const me = this.me();
+    this.quest.hidden = !s || !me || s.finished || !this.steps.length;
+    if (this.quest.hidden) return;
+    const now = current(this.steps);
+    const ready = this.amReady();
+    const body = h('div', { class: 'quest-body' });
+    if (ready) {
+      body.append(h('div', { class: 'quest-now' }, t('game.waiting')));
+    } else if (now) {
+      append(body,
+        h('div', { class: 'quest-label' }, t('adv.title')),
+        h('div', { class: 'quest-now' }, now.text),
+        now.why ? h('div', { class: 'quest-why' }, now.why) : null);
+    }
+    const list = h('ul', { class: 'quest-list' }, ...this.steps.filter((x) => x !== now).map((x) =>
+      h('li', { class: x.done ? 'done' : '' }, x.done && x.target.kind !== 'none' ? '✔ ' : '• ', x.text)));
+    if (list.childElementCount) body.append(list);
+    const show = now && !ready
+      ? h('button', { class: 'btn-ready quest-go', onclick: () => this.showStep(now) },
+        now.target.kind === 'ready' ? t('game.endTurn') : t('adv.show'))
+      : null;
+    if (show && now?.target.kind === 'ready') show.onclick = () => this.endTurnNow();
+    append(this.quest, h('div', { class: 'quest-face' }, coinFace()), body, show);
+  }
+
+  /** For a field or a stranger's place: there is nothing to do here, and a way to what can be done. */
+  private nothingHere(): HTMLElement {
+    const now = current(this.steps);
+    return h('div', { class: 'nothing' },
+      h('p', { class: 'small' }, `${t('sel.nothingHere')} ${t('game.clickMap')}`),
+      now && !this.amReady() ? h('button', {
+        class: 'btn-ready small-ready',
+        onclick: () => (now.target.kind === 'ready' ? this.endTurnNow() : this.showStep(now)),
+      }, now.target.kind === 'ready' ? t('game.endTurn') : t('sel.whatNow')) : null);
+  }
+
+  private endTurnNow(): void {
+    if (!this.amReady()) this.conn.ready(true);
+  }
+
+  /** The goal in one line, the child's place among the seven kings, and how to win (folded). */
+  private goal(): HTMLElement {
     const s = this.state!;
     const me = this.me()!;
     const b = this.rules.balance;
-    const upkeep = s.units.filter((u) => u.owner === me.id).reduce((sum, u) => sum + unitRule(this.rules, u.type).upkeep, 0);
-    let tip: string;
-    if ((me.food ?? 0) < 5) tip = t('tip.hungry');
-    else if (me.mood === 'SAD') tip = t('tip.sad');
-    else if (s.turn <= b.peaceTurns) tip = t('tip.peace', { n: b.peaceTurns + 1 });
-    else if (upkeep > 0 && s.turn % 2 === 0) tip = t('tip.upkeep', { n: upkeep });
-    else if ((me.gold ?? 0) > 150) tip = t('tip.rich');
-    else tip = t('tip.default');
-    return h('div', { class: 'grosik' }, coinFace(), h('div', { class: 'bubble' }, h('b', {}, `${t('tip.name')}: `), tip));
+    const ranking = [...s.kingdoms].sort((a, c) => c.prestige - a.prestige);
+    const rank = ranking.findIndex((k) => k.id === me.id) + 1;
+    const left = Math.max(0, s.maxTurns - s.turn + 1);
+    return h('details', { class: 'goal' },
+      h('summary', {},
+        h('span', { class: 'goal-title' }, `🏆 ${t('goal.title')}`),
+        h('span', { class: 'goal-text' }, t('goal.text', { left }), ' ', h('b', {}, t('goal.rank', { rank, all: s.kingdoms.length }))),
+        h('span', { class: 'goal-how' }, t('goal.how'))),
+      h('ul', {},
+        h('li', {}, t('goal.way1')),
+        h('li', {}, t('goal.way2', { gold: b.economicWinGold ?? 300 })),
+        h('li', {}, t('goal.way3', { castles: b.militaryWinKingdoms ?? 4 }))),
+      h('ol', { class: 'ranking light' }, ...ranking.map((k) => h('li', { class: k.id === me.id ? 'me-row' : '' },
+        h('span', { class: 'dot', style: `background:${k.color}` }), `${kingdomName(k.id)} – ${k.prestige}`))));
+  }
+
+  /** After a turn: gold and food before and after, where the gold went, and what happened to the child's kingdom. */
+  private showSummary(old: { gold: number; food: number }): void {
+    const s = this.state!;
+    const me = this.me()!;
+    const r = s.report;
+    this.summary?.remove();
+    const close = () => {
+      this.summary?.remove();
+      this.summary = undefined;
+      this.backToMap();
+      window.removeEventListener('keydown', onKey);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Enter') close();
+    };
+    const change = (label: Key, before: number, after: number) => {
+      const d = after - before;
+      return h('div', { class: 'sum-row' }, h('span', { class: 'label dark' }, word(label)),
+        h('span', { class: 'big-num' }, `${before} → ${after}`),
+        h('span', { class: d >= 0 ? 'good-dark' : 'bad' }, signed(d)));
+    };
+    const mineIds = new Set([me.id]);
+    const aboutMe = (r?.events ?? []).filter((e) => e.visibleTo.includes(me.id)
+      || Object.values(e.params).some((v) => typeof v === 'string' && mineIds.has(v))
+      || e.key.startsWith('event.'));
+    const next = h('button', { class: 'btn-ready', onclick: close }, t('sum.next', { n: s.turn }));
+    this.summary = h('div', { class: 'tut dim', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('sum.title', { n: r?.turn ?? s.turn - 1 }) },
+      h('div', { class: 'tut-card middle summary' },
+        h('div', { class: 'title' }, t('sum.title', { n: r?.turn ?? s.turn - 1 })),
+        change('w.gold', old.gold, me.gold ?? 0),
+        change('w.food', old.food, me.food ?? 0),
+        r && r.ledger.length ? h('details', { class: 'sum-money' }, h('summary', {}, t('sum.money')),
+          h('table', { class: 'ledger' }, ...r.ledger.map((l) => h('tr', {}, h('td', {}, ledgerText(l)),
+            h('td', { class: l.gold >= 0 ? 'num good-dark' : 'num bad' }, signed(l.gold)))))) : null,
+        h('div', { class: 'label dark' }, t('sum.happened')),
+        aboutMe.length
+          ? h('ul', { class: 'sum-events' }, ...aboutMe.slice(0, 6).map((e) => h('li', {}, eventText(e))))
+          : h('p', { class: 'small' }, t('sum.nothing')),
+        h('p', { class: 'small muted-dark' }, t('sum.more')),
+        next));
+    document.body.append(this.summary);
+    window.addEventListener('keydown', onKey);
+    next.focus();
   }
 
   private readyBox(): HTMLElement {
@@ -709,12 +1013,15 @@ export class GameScreen {
     const ready = this.amReady();
     const box = h('div', { class: 'ready-box' });
     if (s.finished) return box;
+    const solo = this.solo();
+    const now = current(this.steps);
     box.append(h('button', {
-      class: `btn-ready${ready ? ' waiting' : ''}`,
+      class: `btn-ready${ready ? ' waiting' : ''}${!ready && now?.target.kind === 'ready' ? ' suggested' : ''}`,
       onclick: () => this.conn.ready(!ready),
-    }, ready ? t('game.notReady') : word('w.ready'), ' ',
-    h('span', { class: 'small' }, `(${t('game.readyCount', { n: readyCount, all: humans.length })})`)));
-    if (this.host) box.append(h('button', { class: 'btn', onclick: () => this.conn.endTurn() }, t('game.hostEnd')));
+    }, ready ? t('game.notReady') : solo ? t('game.endTurn') : word('w.ready'),
+    solo ? null : h('span', { class: 'small' }, ` (${t('game.readyCount', { n: readyCount, all: humans.length })})`)));
+    // alone against the computer, "End turn" already ends it: a second button would only confuse
+    if (this.host && !solo) box.append(h('button', { class: 'btn', onclick: () => this.conn.endTurn() }, t('game.hostEnd')));
     return box;
   }
 
@@ -746,6 +1053,13 @@ export class GameScreen {
 }
 
 // ------------------------------------------------------------------ small pieces
+
+/** Orders that finish what the child was doing with the clicked thing. */
+const CLOSES = new Set<Order['order']>(['build', 'buildOnTile', 'recruit', 'move', 'attack', 'foundVillage']);
+
+function phone(): boolean {
+  return window.matchMedia('(max-width: 900px)').matches;
+}
 
 function num(input: HTMLInputElement): number {
   const n = Math.floor(Number(input.value));

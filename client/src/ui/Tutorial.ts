@@ -12,7 +12,8 @@ interface Step {
   key: string;
 }
 
-const STEPS: Step[] = [
+/** The full tour of the screen, opened with the "?" button. */
+export const TOUR: Step[] = [
   { key: 'tut.welcome' },
   { target: '.map-scroll', key: 'tut.map' },
   { target: '.map-scroll', key: 'tut.army' },
@@ -22,6 +23,16 @@ const STEPS: Step[] = [
   { target: '.phases', key: 'tut.phases' },
   { target: '.ready-box', key: 'tut.ready' },
   { key: 'tut.end' },
+];
+
+/**
+ * The first time: only three short cards (the story, the goal, Grosik's next step), then the child plays.
+ * Everything else is learnt by doing, one step at a time, with Grosik pointing at the next thing to click.
+ */
+export const INTRO: Step[] = [
+  { key: 'intro.story' },
+  { target: '.goal', key: 'intro.goal' },
+  { target: '.quest', key: 'intro.quest' },
 ];
 
 const SEEN_KEY = 'kc.tutorialSeen';
@@ -54,8 +65,12 @@ export class Tutorial {
     if (e.key === 'ArrowLeft') this.go(-1);
   };
 
-  /** @param params filled into the texts: kingdom, peace (last turn of the opening peace), castles, gold */
-  constructor(private readonly params: Record<string, unknown>, private readonly onClose: () => void = () => undefined) {
+  /** @param params filled into the texts: kingdom, peace (first turn of war), castles, gold, turns */
+  constructor(
+    private readonly params: Record<string, unknown>,
+    private readonly onClose: () => void = () => undefined,
+    private readonly steps: Step[] = TOUR,
+  ) {
     this.root.append(this.hole, this.card);
     document.body.append(this.root);
     window.addEventListener('resize', this.onResize);
@@ -66,7 +81,7 @@ export class Tutorial {
   private go(delta: number): void {
     const next = this.step + delta;
     if (next < 0) return;
-    if (next >= STEPS.length) {
+    if (next >= this.steps.length) {
       this.close();
       return;
     }
@@ -83,13 +98,13 @@ export class Tutorial {
   }
 
   private render(): void {
-    const s = STEPS[this.step];
-    const last = this.step === STEPS.length - 1;
+    const s = this.steps[this.step];
+    const last = this.step === this.steps.length - 1;
     const next = h('button', { class: 'btn-ready', onclick: () => this.go(1) },
-      t(last ? 'tut.play' : this.step === 0 ? 'tut.start' : 'tut.next'));
+      t(last ? 'tut.play' : this.step === 0 && this.steps === TOUR ? 'tut.start' : 'tut.next'));
     this.card.replaceChildren(
       h('div', { class: 'tut-head' },
-        h('span', { class: 'tut-count' }, t('tut.count', { n: this.step + 1, all: STEPS.length })),
+        h('span', { class: 'tut-count' }, t('tut.count', { n: this.step + 1, all: this.steps.length })),
         last ? null : h('button', { class: 'btn small', onclick: () => this.close() }, t('tut.skip'))),
       h('p', { class: 'tut-text' }, t(s.key, this.params)),
       h('div', { class: 'tut-buttons' },
@@ -101,7 +116,7 @@ export class Tutorial {
 
   /** Puts the light on the target and the card next to it (above or below, whichever has more room). */
   private place(): void {
-    const sel = STEPS[this.step].target;
+    const sel = this.steps[this.step].target;
     const el = sel ? document.querySelector<HTMLElement>(sel) : null;
     const r = el?.getBoundingClientRect();
     const visible = !!r && r.width > 0 && r.height > 0;
