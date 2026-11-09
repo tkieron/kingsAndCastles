@@ -226,6 +226,24 @@ h2 { font-size: 22px; }
 .recruit summary { cursor: pointer; }
 .recruit[open] summary { margin-bottom: 6px; }
 
+/* the choices for what was clicked: a card beside it on the map */
+.sheet {
+  position: absolute; z-index: 5; width: 360px; max-width: calc(100% - 16px); max-height: calc(100% - 16px); overflow-y: auto;
+  box-shadow: 0 6px 0 var(--ink), 0 0 0 3px #ffd400; animation: pop 0.15s ease-out;
+}
+.sheet[hidden] { display: none; }
+.sheet .parchment { padding-right: 40px; }
+.sheet-close {
+  position: absolute; top: 6px; right: 6px; z-index: 1; width: 32px; height: 32px; padding: 0; font-size: 18px; font-weight: 800;
+  background: var(--parch-light); color: var(--parch-ink); border: 2px solid var(--parch-ink); cursor: pointer;
+}
+.nothing { display: flex; flex-direction: column; gap: 8px; }
+.btn-ready.small-ready { font-size: 18px; padding: 8px; }
+.quest.flash { animation: flash 0.9s ease-out; }
+@keyframes flash { 0% { background: #c9f2b8; } 100% { background: var(--parch); } }
+@keyframes pop { from { transform: scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sheet, .quest.flash { animation: none; } }
+
 /* the card after each turn */
 .summary { max-height: calc(100vh - 32px); overflow-y: auto; }
 .sum-row { display: flex; align-items: baseline; gap: 10px; }
@@ -245,6 +263,12 @@ h2 { font-size: 22px; }
   .quest-face svg { width: 36px; height: 36px; }
   .quest-now { font-size: 17px; }
   .btn-ready.quest-go { width: 100%; }
+  .sheet {
+    position: fixed; left: 0 !important; right: 0; bottom: 0; top: auto !important; width: auto; max-width: none;
+    max-height: 52vh; z-index: 40; box-shadow: 0 -6px 0 var(--ink), 0 -3px 0 #ffd400;
+    padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--parch);
+  }
+  .sheet .parchment { border-width: 0; }
   .panel { width: auto; border-left: none; border-top: 3px solid var(--ink); }
   .phases { display: none; }
   .chips { justify-content: flex-start; }

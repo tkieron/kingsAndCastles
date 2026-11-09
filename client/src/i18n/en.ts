@@ -187,7 +187,7 @@ export const en = {
   'game.autopilot': 'away – the computer helps',
   'game.vassalOf': 'vassal of {name}',
   'game.newTurn': 'A new turn! Look at the Chronicle.',
-  'game.clickMap': 'Click your castle, a village or an army.',
+  'game.clickMap': 'Click your castle, a village or an army on the map, and the orders you can give appear next to it.',
   'game.tile': 'Field {x},{y}',
 
   'phase.1': 'Deals',
@@ -313,6 +313,9 @@ export const en = {
 
   'game.endTurn': 'End turn ▶',
   'game.waiting': 'You are done! Waiting for the others… You can still change your mind.',
+  'game.close': 'Close',
+  'sel.nothingHere': 'There is nothing to do here.',
+  'sel.whatNow': 'What can I do? Show me',
   'game.phasesShow': 'In what order does a turn happen?',
   'game.tabNew': 'New!',
 

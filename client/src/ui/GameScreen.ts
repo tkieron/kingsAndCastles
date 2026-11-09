@@ -52,6 +52,9 @@ export class GameScreen {
   /** Grosik's steps for this turn; the first one not done is lit up on the map and in the panel. */
   private steps: Step[] = [];
   private readonly quest = h('section', { class: 'quest', 'aria-live': 'polite' });
+  /** The choices for what the child clicked, right next to it on the map (a sheet from the bottom on a phone). */
+  private readonly sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-live': 'polite' });
+  private readonly mapWrap = h('div', { class: 'map-wrap' });
   private summary?: HTMLElement;
   /** Tabs the child has opened, so a tab that appears later can say "New!" until then. */
   private readonly seenTabs = new Set<Tab>(['orders', 'ledger', 'chronicle']);
@@ -63,14 +66,22 @@ export class GameScreen {
     const zoom = h('div', { class: 'zoom' },
       h('button', { class: 'btn small', 'aria-label': t('game.zoomOut'), title: t('game.zoomOut'), onclick: () => this.zoom(-11) }, '−'),
       h('button', { class: 'btn small', 'aria-label': t('game.zoomIn'), title: t('game.zoomIn'), onclick: () => this.zoom(11) }, '+'));
-    this.board.append(this.quest, h('div', { class: 'map-wrap' }, this.mapBox, zoom), this.phases());
+    this.mapWrap.append(this.mapBox, zoom, this.sheet);
+    this.board.append(this.quest, this.mapWrap, this.phases());
+    this.mapBox.addEventListener('scroll', () => this.placeSheet(), { passive: true });
+    window.addEventListener('keydown', this.onKey);
     this.root.append(this.header, h('div', { class: 'game-body' }, this.board, this.panel));
     this.map.setFieldSize(33);
     this.ticker = window.setInterval(() => this.tick(), 500);
   }
 
+  private readonly onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && this.selection && !this.summary && !this.tutorial) this.closeSheet();
+  };
+
   destroy(): void {
     window.clearInterval(this.ticker);
+    window.removeEventListener('keydown', this.onKey);
     this.tutorial?.close();
     this.summary?.remove();
   }
@@ -182,13 +193,17 @@ export class GameScreen {
   /** Replaces the orders that match `same` with `order` (or just removes them) and sends the list. */
   private setOrder(same: (o: Order) => boolean, order?: Order): void {
     if (this.amReady()) return;
-    const before = current(this.steps)?.id;
     this.draft = this.draft.filter((o) => !same(o));
     if (order) this.draft.push(order);
+    // an order was given for the clicked thing: close its choices, so Grosik's next step is what the child sees
+    if (order && CLOSES.has(order.order)) this.selection = null;
     this.sync();
-    // a step done on a phone: back up to Grosik, who already shows the next one
-    const after = current(this.steps)?.id;
-    if (before && after !== before && phone()) this.quest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (order && CLOSES.has(order.order)) {
+      this.quest.classList.remove('flash');
+      void this.quest.offsetWidth;
+      this.quest.classList.add('flash');
+      if (phone()) this.quest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   private sync(): void {
@@ -206,11 +221,71 @@ export class GameScreen {
     if (castle) this.centreOn(castle.pos);
   }
 
+  /** Scrolls the map so the field is in view: in the middle, or in the upper part on a phone (the sheet covers the bottom). */
   private centreOn(p: Pos): void {
     requestAnimationFrame(() => {
       const f = this.map.fieldSize();
-      this.mapBox.scrollTo({ left: p.x * f - this.mapBox.clientWidth / 2, top: p.y * f - this.mapBox.clientHeight / 2, behavior: 'smooth' });
+      const up = phone() && this.selection ? 0.25 : 0.5;
+      this.mapBox.scrollTo({
+        left: p.x * f + f / 2 - this.mapBox.clientWidth / 2,
+        top: p.y * f + f / 2 - this.mapBox.clientHeight * up,
+        behavior: 'smooth',
+      });
     });
+  }
+
+  private selectedPos(): Pos | undefined {
+    const s = this.state;
+    const sel = this.selection;
+    if (!s || !sel) return undefined;
+    if (sel.kind === 'tile') return sel.pos;
+    if (sel.kind === 'settlement') return s.settlements.find((x) => x.id === sel.id)?.pos;
+    return s.units.find((u) => u.id === sel.id)?.pos;
+  }
+
+  private closeSheet(): void {
+    this.selection = null;
+    this.render();
+  }
+
+  /** The choices for the selected thing, in a card next to it. */
+  private renderSheet(): void {
+    const s = this.state;
+    this.sheet.replaceChildren();
+    const show = !!s && !!this.me() && !!this.selection && !s.finished;
+    this.sheet.hidden = !show;
+    this.mapWrap.classList.toggle('sheet-open', show);
+    if (!show) return;
+    this.sheet.append(
+      h('button', { class: 'sheet-close', 'aria-label': t('game.close'), title: t('game.close'), onclick: () => this.closeSheet() }, '✕'),
+      this.selectionView());
+    requestAnimationFrame(() => this.placeSheet());
+  }
+
+  /** On a computer the card stands beside the selected field (right of it, or left when there is no room). */
+  private placeSheet(): void {
+    const at = this.selectedPos();
+    if (this.sheet.hidden || !at) return;
+    if (phone()) {
+      this.sheet.style.left = '';
+      this.sheet.style.top = '';
+      return;
+    }
+    const f = this.map.fieldSize();
+    const border = 4;
+    const x = at.x * f - this.mapBox.scrollLeft + border;
+    const y = at.y * f - this.mapBox.scrollTop + border;
+    const w = this.sheet.offsetWidth;
+    const hgt = this.sheet.offsetHeight;
+    const room = this.mapWrap.clientWidth;
+    // beside an army, keep clear of the fields it can walk to
+    const gap = this.selection?.kind === 'unit' ? f * 2 + 14 : 14;
+    let left = x + f + gap;
+    if (left + w > room - 8) left = x - w - gap;
+    left = Math.max(8, Math.min(room - w - 8, left));
+    const top = Math.max(8, Math.min(this.mapWrap.clientHeight - hgt - 8, y - 24));
+    this.sheet.style.left = `${left}px`;
+    this.sheet.style.top = `${top}px`;
   }
 
   /** Solo game: the child is the only human, so "Ready" simply ends the turn. */
@@ -239,18 +314,22 @@ export class GameScreen {
     if (tg.kind === 'settlement') this.selection = { kind: 'settlement', id: tg.id };
     if (tg.kind === 'tile') this.selection = { kind: 'tile', pos: tg.pos };
     if (tg.kind === 'unit') this.selection = { kind: 'unit', id: tg.id };
-    this.tab = tg.kind === 'tab' ? tg.tab : 'orders';
-    this.seenTabs.add(this.tab);
+    if (tg.kind === 'tab') {
+      this.tab = tg.tab;
+      this.seenTabs.add(this.tab);
+    }
     this.render();
     const at = this.hintPos(step) ?? (tg.kind === 'unit' ? this.state!.units.find((u) => u.id === tg.id)?.pos : undefined);
     if (at) this.centreOn(at);
-    // on a phone the panel is under the map: bring the button to press into view
-    // (an army is moved on the map itself, so then the map stays in view)
+    this.bringIntoView(tg.kind === 'ready' || tg.kind === 'tab' ? this.panel.querySelector<HTMLElement>(tg.kind === 'ready' ? '.btn-ready' : '.tab-body') : this.mapBox);
+  }
+
+  /** On a phone the page scrolls: brings the map (with its sheet) or a part of the panel into view. */
+  private bringIntoView(el: HTMLElement | null): void {
     requestAnimationFrame(() => {
-      const el = tg.kind === 'unit' ? this.mapBox
-        : this.root.querySelector<HTMLElement>(tg.kind === 'ready' ? '.btn-ready' : '.panel .suggested, .tab-body');
-      if (el && phone()) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      else if (el && tg.kind === 'ready') el.scrollIntoView({ block: 'nearest' });
+      if (!el) return;
+      if (phone()) el.scrollIntoView({ behavior: 'smooth', block: el === this.mapBox ? 'start' : 'center' });
+      else el.scrollIntoView({ block: 'nearest' });
     });
   }
 
@@ -308,8 +387,11 @@ export class GameScreen {
     } else {
       this.selection = { kind: 'tile', pos: p };
     }
-    this.tab = 'orders';
     this.render();
+    if (this.selection && phone()) {
+      this.centreOn(p);
+      this.bringIntoView(this.mapBox);
+    }
   }
 
   // ------------------------------------------------------------------ drawing
@@ -426,6 +508,7 @@ export class GameScreen {
     const s = this.state;
     this.panel.replaceChildren();
     this.renderQuest();
+    this.renderSheet();
     if (!s) return;
     if (this.toast) this.panel.append(h('div', { class: 'toast', role: 'status' }, this.toast));
     if (s.finished) this.panel.append(this.gameOver());
@@ -466,7 +549,7 @@ export class GameScreen {
     );
     const body = h('section', { class: 'tab-body' });
     switch (this.tab) {
-      case 'orders': body.append(this.selectionView()); break;
+      case 'orders': body.append(h('p', { class: 'muted small' }, t('game.clickMap'))); break;
       case 'ledger': body.append(this.ledgerView()); break;
       case 'diplomacy': body.append(this.diplomacyView()); break;
       case 'market': body.append(this.marketView()); break;
@@ -480,7 +563,7 @@ export class GameScreen {
   private selectionView(): HTMLElement {
     const s = this.state!;
     const sel = this.selection;
-    if (!sel) return h('p', { class: 'muted small' }, t('game.clickMap'));
+    if (!sel) return h('div');
     if (sel.kind === 'settlement') {
       const st = s.settlements.find((x) => x.id === sel.id);
       return st ? this.settlementView(st) : h('div');
@@ -500,7 +583,7 @@ export class GameScreen {
         h('span', { class: 'title' }, placeName(st.name)),
         h('span', { class: 'small' }, word(st.castle ? 'w.castle' : 'w.village'), ` · ${st.families}/${st.capacity} `, word('w.families'))));
     if (st.owner !== me.id) {
-      parchment.append(h('p', {}, t('sel.notYours', { name: kingdomName(st.owner) })));
+      parchment.append(h('p', {}, t('sel.notYours', { name: kingdomName(st.owner) })), this.nothingHere());
       return parchment;
     }
     const step = current(this.steps);
@@ -581,7 +664,10 @@ export class GameScreen {
       h('div', { class: 'row spread' }, h('span', { class: 'title' }, word(`u.${u.type}`)), h('span', { class: 'small' }, kingdomName(u.owner))),
       h('div', { class: 'small' }, t('sel.unitStats', { a: rule.attack, d: rule.defense, m: rule.move })),
       h('div', { class: 'small' }, t(`ud.${u.type}`)));
-    if (u.owner !== s.me) return box;
+    if (u.owner !== s.me) {
+      box.append(this.nothingHere());
+      return box;
+    }
     const step = current(this.steps);
     if (step?.target.kind === 'unit' && step.target.id === u.id) box.append(h('p', { class: 'suggested-text' }, `★ ${t('adv.clickDest')}`));
     box.append(h('p', { class: 'small' }, t('sel.moveHint')));
@@ -634,6 +720,7 @@ export class GameScreen {
       if (tc === 'H') offer('GOLD_MINE', 'sel.mine');
       if (tc === 'R') offer('BRIDGE', 'sel.bridge');
     }
+    if (!box.querySelector('.option')) box.append(this.nothingHere());
     return box;
   }
 
@@ -828,6 +915,17 @@ export class GameScreen {
     append(this.quest, h('div', { class: 'quest-face' }, coinFace()), body, show);
   }
 
+  /** For a field or a stranger's place: there is nothing to do here, and a way to what can be done. */
+  private nothingHere(): HTMLElement {
+    const now = current(this.steps);
+    return h('div', { class: 'nothing' },
+      h('p', { class: 'small' }, `${t('sel.nothingHere')} ${t('game.clickMap')}`),
+      now && !this.amReady() ? h('button', {
+        class: 'btn-ready small-ready',
+        onclick: () => (now.target.kind === 'ready' ? this.endTurnNow() : this.showStep(now)),
+      }, now.target.kind === 'ready' ? t('game.endTurn') : t('sel.whatNow')) : null);
+  }
+
   private endTurnNow(): void {
     if (!this.amReady()) this.conn.ready(true);
   }
@@ -944,6 +1042,9 @@ export class GameScreen {
 }
 
 // ------------------------------------------------------------------ small pieces
+
+/** Orders that finish what the child was doing with the clicked thing. */
+const CLOSES = new Set<Order['order']>(['build', 'buildOnTile', 'recruit', 'move', 'attack', 'foundVillage']);
 
 function phone(): boolean {
   return window.matchMedia('(max-width: 900px)').matches;

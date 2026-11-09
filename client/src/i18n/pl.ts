@@ -183,7 +183,7 @@ export const pl: Record<Key, string> = {
   'game.autopilot': 'nieobecny – pomaga komputer',
   'game.vassalOf': 'lennik: {name}',
   'game.newTurn': 'Nowa tura! Zajrzyj do Kroniki.',
-  'game.clickMap': 'Kliknij swój zamek, wioskę albo wojsko.',
+  'game.clickMap': 'Kliknij na mapie swój zamek, wioskę albo wojsko, a obok pokażą się możliwe rozkazy.',
   'game.tile': 'Pole {x},{y}',
 
   'phase.1': 'Umowy',
@@ -302,6 +302,9 @@ export const pl: Record<Key, string> = {
 
   'game.endTurn': 'Zakończ turę ▶',
   'game.waiting': 'Gotowe! Czekamy na pozostałych… Możesz jeszcze zmienić zdanie.',
+  'game.close': 'Zamknij',
+  'sel.nothingHere': 'Tutaj nic nie zrobisz.',
+  'sel.whatNow': 'Co mogę zrobić? Pokaż mi',
   'game.phasesShow': 'W jakiej kolejności dzieje się tura?',
   'game.tabNew': 'Nowe!',
 
