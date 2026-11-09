@@ -1,6 +1,9 @@
 import type { GameState, Lobby, Order, Problem, RoomSettings, Rules } from './types';
 
-/** Where the game server lives. ?server=… in the address wins, then the build setting, then this computer. */
+/**
+ * Where the game server lives. ?server=… in the address wins, then the build setting, then this computer.
+ * "local" means no server at all: the game runs inside this page (see src/local).
+ */
 export function serverUrl(): string {
   const fromQuery = new URLSearchParams(location.search).get('server');
   if (fromQuery) {
@@ -17,6 +20,29 @@ export function serverUrl(): string {
 export class ApiError extends Error {
   constructor(public readonly key: string) {
     super(key);
+  }
+}
+
+/** True for the offline version: rooms, rules and computer kings all live in this page. */
+export function isLocal(): boolean {
+  return serverUrl() === 'local';
+}
+
+type LocalModule = typeof import('./local/LocalServer');
+let localModule: Promise<LocalModule> | null = null;
+
+/** Loads the in-page server (and the game engine with it) only when it is needed. */
+function local(): Promise<LocalModule> {
+  localModule ??= import('./local/LocalServer');
+  return localModule;
+}
+
+async function callLocal<T>(fn: (m: LocalModule) => Promise<T>): Promise<T> {
+  const m = await local();
+  try {
+    return await fn(m);
+  } catch (e) {
+    throw new ApiError(e instanceof m.LocalError ? e.key : 'error.badRequest');
   }
 }
 
@@ -38,13 +64,21 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, hea
 }
 
 export const api = {
-  rules: () => call<Rules>('GET', '/api/rules'),
-  create: (settings: RoomSettings) => call<{ code: string; hostToken: string }>('POST', '/api/rooms', settings),
-  lobby: (code: string) => call<Lobby>('GET', `/api/rooms/${code}`),
-  join: (code: string, name: string) =>
-    call<{ token: string; seat: number; kingdom: string }>('POST', `/api/rooms/${code}/join`, { name }),
-  start: (code: string, hostToken: string) =>
-    call<Lobby>('POST', `/api/rooms/${code}/start`, undefined, { 'X-Host-Token': hostToken }),
+  rules: () => isLocal()
+    ? callLocal((m) => m.localApi.rules())
+    : call<Rules>('GET', '/api/rules'),
+  create: (settings: RoomSettings) => isLocal()
+    ? callLocal((m) => m.localApi.create(settings))
+    : call<{ code: string; hostToken: string }>('POST', '/api/rooms', settings),
+  lobby: (code: string) => isLocal()
+    ? callLocal((m) => m.localApi.lobby(code))
+    : call<Lobby>('GET', `/api/rooms/${code}`),
+  join: (code: string, name: string) => isLocal()
+    ? callLocal((m) => m.localApi.join(code, name))
+    : call<{ token: string; seat: number; kingdom: string }>('POST', `/api/rooms/${code}/join`, { name }),
+  start: (code: string, hostToken: string) => isLocal()
+    ? callLocal((m) => m.localApi.start(code, hostToken))
+    : call<Lobby>('POST', `/api/rooms/${code}/start`, undefined, { 'X-Host-Token': hostToken }),
 };
 
 // ------------------------------------------------------------------ remembered seats
@@ -104,8 +138,39 @@ export type ServerMessage =
   | { type: 'error'; error: string }
   | { type: 'pong' };
 
+/** What a game screen talks to: the WebSocket to the server, or the in-page server. */
+export interface Link {
+  orders(orders: Order[]): void;
+  ready(ready: boolean): void;
+  endTurn(): void;
+  close(): void;
+}
+
+/** Opens the live connection for a seat: to the server, or to the in-page server in the offline version. */
+export function connect(seat: Seat, onMessage: (m: ServerMessage) => void, onOnline: (online: boolean) => void): Link {
+  if (!isLocal()) return new Connection(seat, onMessage, onOnline);
+  let link: Link | null = null;
+  let closed = false;
+  const waiting: ((l: Link) => void)[] = [];
+  void local().then((m) => {
+    if (closed) return;
+    link = new m.LocalConnection(seat, onMessage, onOnline);
+    waiting.splice(0).forEach((f) => f(link!));
+  });
+  const use = (f: (l: Link) => void) => (link ? f(link) : waiting.push(f));
+  return {
+    orders: (o) => use((l) => l.orders(o)),
+    ready: (r) => use((l) => l.ready(r)),
+    endTurn: () => use((l) => l.endTurn()),
+    close: () => {
+      closed = true;
+      link?.close();
+    },
+  };
+}
+
 /** Keeps a WebSocket open to the room, reconnecting after a lost connection (phones sleep a lot). */
-export class Connection {
+export class Connection implements Link {
   private ws: WebSocket | null = null;
   private closed = false;
   private retry = 0;

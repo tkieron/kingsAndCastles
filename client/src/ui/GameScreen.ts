@@ -1,4 +1,4 @@
-import type { Connection, ServerMessage } from '../api';
+import type { Link, ServerMessage } from '../api';
 import { h, word } from '../dom';
 import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
@@ -7,7 +7,8 @@ import {
   terrainAt, territory, unitRule,
 } from '../game/rules';
 import { inkOn } from '../game/sprites';
-import { clock, eventText, kingdomName, ledgerText, orderText, season } from '../game/text';
+import { Tutorial, tutorialSeen } from './Tutorial';
+import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season } from '../game/text';
 import type {
   BuildingType, GameState, KingdomView, Order, Pos, Problem, Rules, SettlementView, TaxRate, TreatyType, UnitType, UnitView,
 } from '../types';
@@ -45,8 +46,9 @@ export class GameScreen {
   private timeEl?: HTMLElement;
   private barEl?: HTMLElement;
   private ticker: number;
+  private tutorial?: Tutorial;
 
-  constructor(private readonly rules: Rules, private readonly conn: Connection, private readonly onLeave: () => void) {
+  constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void) {
     this.map = new MapCanvas((p) => this.clickMap(p));
     this.mapBox.append(this.map.canvas);
     const zoom = h('div', { class: 'zoom' },
@@ -60,6 +62,22 @@ export class GameScreen {
 
   destroy(): void {
     window.clearInterval(this.ticker);
+    this.tutorial?.close();
+  }
+
+  /** The guided tour of this screen; it opens by itself the first time a child plays. */
+  private showTutorial(): void {
+    const me = this.me();
+    if (!me || this.tutorial) return;
+    const b = this.rules.balance;
+    this.tutorial = new Tutorial({
+      kingdom: kingdomName(me.id),
+      peace: (b.peaceTurns ?? 5) + 1,
+      castles: b.militaryWinKingdoms ?? 4,
+      gold: b.economicWinGold ?? 300,
+    }, () => {
+      this.tutorial = undefined;
+    });
   }
 
   setOnline(on: boolean): void {
@@ -91,6 +109,9 @@ export class GameScreen {
         }
         if (before === undefined && this.me()) this.centreOnCastle();
         this.render();
+        if (before === undefined && this.me() && !m.state.finished && !tutorialSeen()) {
+          window.setTimeout(() => this.showTutorial(), 300);
+        }
         return;
       }
       case 'ready':
@@ -253,7 +274,7 @@ export class GameScreen {
   private renderHeader(): void {
     const s = this.state;
     this.header.replaceChildren();
-    const logo = h('div', { class: 'logo' }, castleIcon(), h('span', { class: 'logo-text' }, 'Kings & Castles'));
+    const logo = h('div', { class: 'logo' }, castleIcon(), h('span', { class: 'logo-text' }, t('app.name')));
     if (!s) {
       this.header.append(logo);
       return;
@@ -272,7 +293,7 @@ export class GameScreen {
         const state = k.controller !== 'HUMAN' ? 'PC' : k.autopilot ? 'zZ' : ready ? 'OK' : '…';
         return h('div', {
           class: `chip${k.id === s.me ? ' mine' : ''}`,
-          title: `${kingdomName(k.id)}${k.playerName ? ` – ${k.playerName}` : ''}`,
+          title: `${kingdomName(k.id)} – ${playerLabel(k)}`,
         },
         h('div', { class: 'badge', style: `background:${k.color};color:${inkOn(k.color)}` }, kingdomName(k.id).charAt(0)),
         h('div', { class: 'chip-text' },
@@ -280,6 +301,9 @@ export class GameScreen {
           h('span', {}, `${k.prestige} · `, h('i', { class: ready ? 'good' : '' }, state))));
       })),
       ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
+      ...(this.me() ? [h('button', {
+        class: 'btn small help', title: t('tut.help'), 'aria-label': t('tut.help'), onclick: () => this.showTutorial(),
+      }, '?')] : []),
     );
     this.tick();
   }
@@ -394,7 +418,7 @@ export class GameScreen {
     const me = this.me()!;
     const parchment = h('div', { class: 'parchment' },
       h('div', { class: 'row spread' },
-        h('span', { class: 'title' }, st.name),
+        h('span', { class: 'title' }, placeName(st.name)),
         h('span', { class: 'small' }, word(st.castle ? 'w.castle' : 'w.village'), ` · ${st.families}/${st.capacity} `, word('w.families'))));
     if (st.owner !== me.id) {
       parchment.append(h('p', {}, t('sel.notYours', { name: kingdomName(st.owner) })));
@@ -703,7 +727,7 @@ export class GameScreen {
       h('p', { class: 'muted' }, t('game.spectator')),
       h('ol', { class: 'ranking light' }, ...ranking.map((k) => h('li', {},
         h('span', { class: 'dot', style: `background:${k.color}` }),
-        `${kingdomName(k.id)}${k.playerName ? ` (${k.playerName})` : ''} – ${k.prestige}`,
+        `${kingdomName(k.id)} (${playerLabel(k)}) – ${k.prestige}`,
         s.ready.includes(k.id) ? ' ✔' : ''))),
       h('p', {}, t('game.readyCount', { n: humans.filter((k) => s.ready.includes(k.id)).length, all: humans.length })),
       this.host && !s.finished ? h('button', { class: 'btn-ready', onclick: () => this.conn.endTurn() }, t('game.hostEnd')) : null,

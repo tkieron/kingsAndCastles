@@ -14,7 +14,7 @@ function load(): Lang {
   } catch {
     /* private mode */
   }
-  return 'en';
+  return 'pl';
 }
 
 export function getLang(): Lang {
@@ -29,6 +29,7 @@ export function setLang(l: Lang): void {
     /* private mode */
   }
   document.documentElement.lang = l;
+  document.title = t('app.name');
 }
 
 export function hasKey(key: string): key is Key {
@@ -44,11 +45,12 @@ export function t(key: Key | string, params: Record<string, unknown> = {}): stri
 
 /**
  * The tooltip for a glossary word. In English the child sees the Polish word and a short explanation;
- * in Polish they see the English word, so they learn it too.
+ * in Polish everything stays Polish: the tooltip explains the word.
  */
 export function tipFor(key: Key): string | undefined {
   if (lang === 'pl') {
-    return en[key];
+    const hint = plHints[key];
+    return hint ? hint.charAt(0).toUpperCase() + hint.slice(1) : undefined;
   }
   const word = pl[key];
   const hint = plHints[key];
