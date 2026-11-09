@@ -27,11 +27,36 @@ class GameTest {
         return out;
     }
 
+    private static List<Game.Seat> children(int n) {
+        List<Game.Seat> out = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            out.add(new Game.Seat("Child " + (i + 1), Controller.HUMAN));
+        }
+        return out;
+    }
+
     @ParameterizedTest
-    @ValueSource(ints = {2, 3, 4, 5, 6, 7})
-    void everyKingdomStartsWithTheSameHome(int n) {
-        Game g = Game.create(new Game.Setup(1234 + n, 20, seats(n)));
+    @ValueSource(ints = {1, 2, 3, 4, 5, 6, 7})
+    void thereAreAlwaysSevenKingdomsAndTheComputerTakesFreeSeats(int children) {
+        Game g = Game.create(new Game.Setup(3, 20, children(children), Controller.AI_PRO, new Balance()));
         GameState s = g.state();
+        assertEquals(7, s.kingdoms.size());
+        assertEquals(children, s.kingdoms.values().stream().filter(k -> k.isHuman()).count());
+        assertEquals(7 - children, s.kingdoms.values().stream().filter(k -> k.controller == Controller.AI_PRO).count());
+    }
+
+    @Test
+    void moreThanSevenSeatsIsNotAllowed() {
+        assertThrows(IllegalArgumentException.class, () -> new Game.Setup(1, 20, children(8)));
+        assertThrows(IllegalArgumentException.class, () -> new Game.Setup(1, 20, List.of()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 3, 42, 1234, 99999})
+    void everyKingdomStartsWithTheSameHome(long seed) {
+        Game g = Game.create(new Game.Setup(seed, 20, seats(1)));
+        GameState s = g.state();
+        int n = 7;
         List<Settlement> castles = s.settlements.stream().filter(st -> st.castle).toList();
         assertEquals(n, castles.size());
         assertEquals(2 * n, s.settlements.size());
@@ -95,7 +120,7 @@ class GameTest {
 
     @Test
     void aWholeGamePlaysToTheEnd() {
-        Game g = Game.create(new Game.Setup(5, 10, seats(7)));
+        Game g = Game.create(new Game.Setup(5, 10, seats(3)));
         for (int t = 0; t < 10; t++) {
             g.endTurn();
         }

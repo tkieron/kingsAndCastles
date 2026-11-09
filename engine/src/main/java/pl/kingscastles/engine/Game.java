@@ -25,7 +25,7 @@ import java.util.Map;
  */
 public class Game {
 
-    /** The seven kingdoms of the Land of Seven Rivers, in the order seats are filled. */
+    /** The seven kingdoms of the Land of Seven Rivers, in the order seats are filled. Every game has all seven. */
     public record KingdomPreset(String id, String name, String color, String castle, String village) {
     }
 
@@ -42,9 +42,23 @@ public class Game {
     public record Seat(String playerName, Controller controller) {
     }
 
-    public record Setup(long seed, int maxTurns, List<Seat> seats, Balance balance) {
+    /**
+     * A new game. {@code seats} lists 1 to 7 seats in kingdom order; the remaining kingdoms are
+     * played by the computer at {@code fillLevel}.
+     */
+    public record Setup(long seed, int maxTurns, List<Seat> seats, Controller fillLevel, Balance balance) {
+        public Setup {
+            if (seats.isEmpty() || seats.size() > MapGenerator.KINGDOMS) {
+                throw new IllegalArgumentException("A game has 1 to 7 seats");
+            }
+            if (fillLevel == Controller.HUMAN) {
+                throw new IllegalArgumentException("Free seats are filled by the computer");
+            }
+            seats = List.copyOf(seats);
+        }
+
         public Setup(long seed, int maxTurns, List<Seat> seats) {
-            this(seed, maxTurns, seats, new Balance());
+            this(seed, maxTurns, seats, Controller.AI_ADVANCED, new Balance());
         }
     }
 
@@ -56,14 +70,16 @@ public class Game {
     }
 
     public static Game create(Setup setup) {
-        int n = setup.seats().size();
-        MapGenerator.Layout layout = MapGenerator.generate(setup.seed(), n);
+        int n = MapGenerator.KINGDOMS;
+        MapGenerator.Layout layout = MapGenerator.generate(setup.seed());
         Balance b = setup.balance();
         GameState s = new GameState(setup.seed(), b, layout.map(), setup.maxTurns());
         List<Pos> taken = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             KingdomPreset p = PRESETS.get(i);
-            Seat seat = setup.seats().get(i);
+            Seat seat = i < setup.seats().size()
+                    ? setup.seats().get(i)
+                    : new Seat("Computer", setup.fillLevel());
             Kingdom k = new Kingdom(p.id(), p.name(), p.color(), seat.controller());
             k.playerName = seat.playerName();
             k.gold = b.startGold;

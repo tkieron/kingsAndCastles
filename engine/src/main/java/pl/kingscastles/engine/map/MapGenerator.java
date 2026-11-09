@@ -9,17 +9,18 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Builds a random map for 2–7 kingdoms. Castles sit on a ring around the centre and every castle
- * gets the same 7x7 home area (same meadows, forests and hills), so nobody starts worse.
+ * Builds a random map for the seven kingdoms (there are always seven: seats without a child are played
+ * by the computer). Castles sit on a ring around the centre and every castle gets the same 7x7 home
+ * area (same meadows, forests and hills), so nobody starts worse.
  */
 public final class MapGenerator {
 
     public record Layout(GameMap map, List<Pos> castles, List<Pos> villages) {
     }
 
-    private static final int[][] SIZES = {
-            {20, 15}, {20, 15}, {20, 15}, {24, 18}, {26, 20}, {28, 22}, {32, 24}, {34, 26}
-    };
+    public static final int KINGDOMS = 7;
+    public static final int WIDTH = 34;
+    public static final int HEIGHT = 26;
 
     /** Home area around a castle, rows from -3 to +3: . meadow, f forest, h hills. */
     private static final String[] HOME = {
@@ -35,13 +36,11 @@ public final class MapGenerator {
     private MapGenerator() {
     }
 
-    public static Layout generate(long seed, int kingdoms) {
-        if (kingdoms < 2 || kingdoms > 7) {
-            throw new IllegalArgumentException("A game has 2 to 7 kingdoms");
-        }
+    public static Layout generate(long seed) {
+        int kingdoms = KINGDOMS;
         Random rnd = new Random(seed);
-        int w = SIZES[kingdoms][0];
-        int h = SIZES[kingdoms][1];
+        int w = WIDTH;
+        int h = HEIGHT;
         GameMap map = new GameMap(w, h);
         double[][] height = noise(rnd, w, h, 5);
         double[][] wet = noise(rnd, w, h, 4);
