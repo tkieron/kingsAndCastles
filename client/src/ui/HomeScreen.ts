@@ -133,7 +133,7 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   const offline = isLocal();
   const saved = savedSeat();
   return h('div', { class: 'home' },
-    h('header', { class: 'home-head' }, castleIcon(), h('h1', {}, 'Kings & Castles')),
+    h('header', { class: 'home-head' }, castleIcon(), h('h1', {}, t('app.name'))),
     h('p', { class: 'tagline' }, t('home.tagline')),
     langs,
     offline ? h('p', { class: 'small muted center' }, t('home.offline')) : null,

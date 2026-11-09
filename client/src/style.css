@@ -204,3 +204,25 @@ h2 { font-size: 22px; }
   .big-code { font-size: 48px; letter-spacing: 8px; }
 }
 .lobby > .btn { align-self: flex-start; }
+
+/* ------------------------------------------------------------------ tutorial */
+.tut { position: fixed; inset: 0; z-index: 50; }
+.tut.dim { background: rgba(10, 9, 22, 0.72); }
+.tut-hole {
+  position: fixed; border-radius: 8px; border: 3px solid var(--gold);
+  box-shadow: 0 0 0 9999px rgba(10, 9, 22, 0.72); pointer-events: none; transition: all 0.25s ease;
+}
+.tut-card {
+  position: fixed; width: min(420px, calc(100vw - 32px)); background: var(--parch); color: var(--parch-ink);
+  border: 3px solid var(--parch-ink); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 8px 0 var(--ink);
+}
+.tut-card.middle { left: 50% !important; top: 50% !important; bottom: auto !important; transform: translate(-50%, -50%); }
+.tut-card.inside { bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important; top: auto !important; }
+.tut-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tut-count { font-family: var(--pixel); color: var(--parch-muted); font-size: 14px; }
+.tut-text { margin: 0; font-size: 17px; line-height: 1.45; }
+.tut-buttons { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tut-buttons .btn-ready { padding: 8px 18px; font-size: 18px; }
+.help { font-family: var(--pixel); min-width: 34px; }
+@media (prefers-reduced-motion: reduce) { .tut-hole { transition: none; } }

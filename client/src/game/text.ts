@@ -8,6 +8,19 @@ export function kingdomName(id: string | undefined | null): string {
   return hasKey(`k.${id}`) ? t(`k.${id}`) : id;
 }
 
+const PLACE_PARAMS = new Set(['village', 'castle', 'settlement']);
+
+/** The name of a castle or village in the chosen language (the server names them in English; new villages keep the child's name). */
+export function placeName(name: string | undefined | null): string {
+  if (!name) return '';
+  return hasKey(`place.${name}`) ? t(`place.${name}`) : name;
+}
+
+/** Who plays a kingdom: the child's name, or the computer level. */
+export function playerLabel(k: { playerName?: string; controller: string }): string {
+  return k.controller === 'HUMAN' ? k.playerName ?? '' : t(`ctl.${k.controller}`);
+}
+
 /** Turns raw values from the server (kingdom ids, BUILDING names…) into words in the chosen language. */
 export function niceParams(params: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -16,6 +29,8 @@ export function niceParams(params: Record<string, unknown>): Record<string, unkn
       out[name] = value;
     } else if (KINGDOM_PARAMS.has(name)) {
       out[name] = kingdomName(value);
+    } else if (PLACE_PARAMS.has(name)) {
+      out[name] = placeName(value);
     } else if (name === 'winners') {
       out[name] = value.split(',').filter(Boolean).map(kingdomName).join(', ');
     } else if (hasKey(`b.${value}`)) {
@@ -39,7 +54,7 @@ export function eventText(e: ChronicleEvent): string {
     p.result = t(e.params.attackerWins ? 'chronicle.attackerWon' : 'chronicle.defenderWon');
   }
   if (e.key === 'chronicle.built') {
-    p.where = e.params.settlement ? t('where.at', { settlement: e.params.settlement }) : '';
+    p.where = e.params.settlement ? t('where.at', { settlement: p.settlement }) : '';
   }
   return t(e.key, p);
 }
@@ -49,7 +64,7 @@ export function ledgerText(l: LedgerLine): string {
 }
 
 export function orderText(o: Order, s: GameState): string {
-  const settlement = (id: number) => s.settlements.find((x) => x.id === id)?.name ?? '?';
+  const settlement = (id: number) => placeName(s.settlements.find((x) => x.id === id)?.name) || '?';
   const unit = (id: number) => {
     const u = s.units.find((x) => x.id === id);
     return u ? t(`u.${u.type}`) : '?';
