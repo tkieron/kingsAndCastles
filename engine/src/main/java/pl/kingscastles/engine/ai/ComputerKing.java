@@ -33,8 +33,52 @@ public final class ComputerKing {
     private ComputerKing() {
     }
 
-    /** Orders for one kingdom this turn, already checked so every one of them is valid. */
+    /**
+     * Orders for one kingdom this turn, already checked so every one of them is valid. A computer king
+     * plays by the children's rule: answers to offers, plus one move (or {@code actionsPerTurn} moves of one kind).
+     */
     public static List<Order> orders(GameState s, String kingdomId, Controller level) {
+        List<Order> wishes = wishes(s, kingdomId, level);
+        int armySize = s.unitsOf(kingdomId).size();
+        boolean armyFirst = armySize == 0
+                || (level != Controller.AI_BEGINNER && s.turn > s.balance.peaceTurns && s.turn % 2 == 0);
+        return keepValid(s, kingdomId, oneMove(s, kingdomId, wishes, armyFirst));
+    }
+
+    /** Keeps the answers and the most useful move (and more moves of the same kind, if the rules allow). */
+    static List<Order> oneMove(GameState s, String kingdomId, List<Order> wishes, boolean armyFirst) {
+        Kingdom k = s.kingdom(kingdomId);
+        List<Order> out = new ArrayList<>();
+        List<Order> moves = new ArrayList<>();
+        for (Order o : wishes) {
+            (o.category() == Order.Category.ANSWER ? out : moves).add(o);
+        }
+        moves.sort(Comparator.comparingInt(o -> rank(o, k, armyFirst)));
+        if (!moves.isEmpty()) {
+            Order.Category kind = moves.get(0).category();
+            moves.stream().filter(o -> o.category() == kind).limit(Math.max(0, s.balance.actionsPerTurn)).forEach(out::add);
+        }
+        return out;
+    }
+
+    /** Smaller is more urgent: fight back first, then hunger and sadness, then building or the army. */
+    private static int rank(Order o, Kingdom k, boolean armyFirst) {
+        return switch (o) {
+            case Order.Attack a -> 0;
+            case Order.MarketTrade m when m.buyFood() > 0 -> 1;
+            case Order.SetTax t when k.mood == Mood.SAD -> 1;
+            case Order.Recruit r -> armyFirst ? 2 : 5;
+            case Order.Move m -> armyFirst ? 3 : 6;
+            case Order.BuildOnTile b -> armyFirst ? 4 : 2;
+            case Order.Build b -> armyFirst ? 5 : 3;
+            case Order.MarketTrade m -> 7;
+            case Order.ProposeTreaty p -> 8;
+            default -> 9;
+        };
+    }
+
+    /** Everything this king would like to do this turn, before choosing one move. */
+    private static List<Order> wishes(GameState s, String kingdomId, Controller level) {
         Kingdom k = s.kingdom(kingdomId);
         List<Order> out = new ArrayList<>();
         int budget = k.gold - 20;
@@ -131,7 +175,8 @@ public final class ComputerKing {
                     .findFirst()
                     .ifPresent(o -> out.add(new Order.ProposeTreaty(o.id, TreatyType.TRADE)));
         }
-        return keepValid(s, kingdomId, out);
+        // each wish on its own must be a valid order; the chosen move is checked again as a whole
+        return out.stream().filter(o -> OrderValidator.validate(s, kingdomId, List.of(o)).isEmpty()).toList();
     }
 
     /** Drops orders the validator rejects (and the last costly ones if money runs short). */

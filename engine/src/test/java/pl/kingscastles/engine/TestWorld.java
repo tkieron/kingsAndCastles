@@ -26,6 +26,8 @@ final class TestWorld {
         Balance b = new Balance();
         b.eventChancePercent = 0;
         b.helpEveryTurns = 1000;
+        // rule tests give many orders at once; the one-move rule has its own test
+        b.actionsPerTurn = 99;
         s = new GameState(42, b, new GameMap(w, h), 20);
     }
 

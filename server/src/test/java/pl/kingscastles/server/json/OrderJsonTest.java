@@ -32,6 +32,7 @@ class OrderJsonTest {
                 new Order.BuyFreedom(),
                 new Order.ProposeTreaty("owl", TreatyType.PACT),
                 new Order.AcceptTreaty("owl", TreatyType.ALLIANCE),
+                new Order.RejectTreaty("owl", TreatyType.PACT),
                 new Order.BreakTreaty("owl", TreatyType.TRADE));
         for (Order o : all) {
             String text = json.writeValueAsString(o);

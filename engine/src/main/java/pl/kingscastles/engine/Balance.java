@@ -6,6 +6,13 @@ package pl.kingscastles.engine;
  * {@link pl.kingscastles.engine.model.BuildingType}. Values follow the game design document.
  */
 public class Balance {
+    // the turn
+    /**
+     * Orders a kingdom may give in one turn, all of one kind (army, buildings, economy or diplomacy).
+     * Answers to treaty offers do not count. One move per turn keeps the game simple for children.
+     */
+    public int actionsPerTurn = 1;
+
     // start
     public int startGold = 100;
     public int startFood = 10;

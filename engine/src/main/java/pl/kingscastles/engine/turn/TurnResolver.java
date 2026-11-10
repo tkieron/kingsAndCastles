@@ -196,6 +196,13 @@ public final class TurnResolver {
             s.treaties.add(new Treaty(a.type(), a.from(), o.kingdom, s.turn, ends));
             event(DEALS, "chronicle.treatySigned", ALL, "a", a.from(), "b", o.kingdom, "type", a.type());
         }
+        for (Owned o : ordersOf(RejectTreaty.class)) {
+            RejectTreaty r = (RejectTreaty) o.order;
+            boolean was = s.proposals.removeIf(x -> x.from().equals(r.from()) && x.to().equals(o.kingdom) && x.type() == r.type());
+            if (was) {
+                event(DEALS, "chronicle.treatyRejected", List.of(r.from(), o.kingdom), "by", o.kingdom, "from", r.from(), "type", r.type());
+            }
+        }
         s.proposals.removeIf(p -> p.turn() < s.turn);
         for (Owned o : ordersOf(ProposeTreaty.class)) {
             ProposeTreaty p = (ProposeTreaty) o.order;

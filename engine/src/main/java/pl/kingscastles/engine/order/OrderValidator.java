@@ -62,6 +62,14 @@ public final class OrderValidator {
             gold += o.goldCost(s);
             food += o.foodCost();
         }
+        // one move per turn: answers to offers are free, everything else counts, all of one kind
+        List<Order> actions = orders.stream().filter(o -> o.category() != Order.Category.ANSWER).toList();
+        if (actions.stream().map(Order::category).distinct().count() > 1) {
+            out.add(new Problem(-1, "error.oneKindPerTurn"));
+        }
+        if (actions.size() > s.balance.actionsPerTurn) {
+            out.add(new Problem(-1, s.balance.actionsPerTurn == 1 ? "error.oneMovePerTurn" : "error.tooManyMoves"));
+        }
         int available = k.gold + (loan ? s.balance.loanAmount : 0);
         if (gold > available) {
             out.add(new Problem(-1, "error.notEnoughGold"));
@@ -146,6 +154,9 @@ public final class OrderValidator {
             }
             case AcceptTreaty a -> s.proposals.stream()
                     .anyMatch(p -> p.from().equals(a.from()) && p.to().equals(k.id) && p.type() == a.type())
+                    ? null : "error.noSuchProposal";
+            case RejectTreaty r -> s.proposals.stream()
+                    .anyMatch(p -> p.from().equals(r.from()) && p.to().equals(k.id) && p.type() == r.type())
                     ? null : "error.noSuchProposal";
             case BreakTreaty b -> s.hasTreaty(k.id, b.with(), b.type()) ? null : "error.noSuchTreaty";
         };
