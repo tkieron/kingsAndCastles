@@ -98,6 +98,8 @@ export function orderText(o: Order, s: GameState): string {
       return t('o.proposeTreaty', { type: t(`t.${o.type}`), to: kingdomName(o.to) });
     case 'acceptTreaty':
       return t('o.acceptTreaty', { type: t(`t.${o.type}`), from: kingdomName(o.from) });
+    case 'rejectTreaty':
+      return t('o.rejectTreaty', { type: t(`t.${o.type}`), from: kingdomName(o.from) });
     case 'breakTreaty':
       return t('o.breakTreaty', { type: t(`t.${o.type}`), with: kingdomName(o.with) });
   }

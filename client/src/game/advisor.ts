@@ -1,64 +1,75 @@
 import { t } from '../i18n';
 import type { BuildingType, GameState, KingdomView, Order, Pos, Rules, SettlementView, UnitView } from '../types';
-import { buildOptions, buildingCost, distance, goldCost, improvementAt, reachable, samePos, terrainAt, territory, unitRule } from './rules';
+import { buildOptions, buildingCost, distance, improvementAt, reachable, samePos, terrainAt, territory, unitRule } from './rules';
 import { placeName } from './text';
 
 /**
- * Grosik the treasurer looks at the kingdom and says what is worth doing now, one small step at a time.
- * A 10-year-old should never wonder "what do I do now?": there is always one next step, and it shows
- * where to click. The steps only suggest orders; the child can do anything else, and the server checks everything.
+ * One turn is one move. The child first picks what kind of move to make (army, buildings, economy or
+ * diplomacy), then gives one order of that kind. Answers to treaty offers are free and come before the move.
+ *
+ * Grosik the treasurer looks at the kingdom and says which move is worth making now, so a 10-year-old never
+ * wonders "what do I do now?". The ideas only suggest; the child can do anything else, and the server checks everything.
  */
+
+export type Kind = 'ARMY' | 'BUILD' | 'ECONOMY' | 'DIPLOMACY';
+export const KINDS: Kind[] = ['ARMY', 'BUILD', 'ECONOMY', 'DIPLOMACY'];
+
+/** The kind of move an order is (the same split as the engine's Order.Category). */
+export function kindOf(o: Order): Kind | 'ANSWER' {
+  switch (o.order) {
+    case 'move': case 'attack': case 'recruit': case 'foundVillage': return 'ARMY';
+    case 'build': case 'buildOnTile': return 'BUILD';
+    case 'setTax': case 'market': case 'takeLoan': return 'ECONOMY';
+    case 'gift': case 'buyFreedom': case 'proposeTreaty': case 'breakTreaty': return 'DIPLOMACY';
+    case 'acceptTreaty': case 'rejectTreaty': return 'ANSWER';
+  }
+}
+
+/** This turn's move, if the child has chosen it already. */
+export function moveOf(draft: Order[]): Order | undefined {
+  return draft.find((o) => kindOf(o) !== 'ANSWER');
+}
 
 export type Target =
   | { kind: 'settlement'; id: number; building?: BuildingType }
   | { kind: 'tile'; pos: Pos; building: BuildingType }
   | { kind: 'unit'; id: number; dest: Pos }
-  | { kind: 'tab'; tab: 'market' }
-  | { kind: 'ready' }
-  | { kind: 'none' };
+  /** The choices are in the side panel (market, tax, treaties). */
+  | { kind: 'panel' };
 
+/** One move Grosik suggests. */
 export interface Step {
   id: string;
+  /** The kind of move the child picks to do it. */
+  move: Kind;
   text: string;
   /** Why it is worth it, in one short sentence. */
   why?: string;
   target: Target;
-  done: boolean;
 }
 
-/** How many suggestions (besides "end the turn") Grosik shows at once. */
-const MAX_TODO = 2;
-
-export function advise(s: GameState, rules: Rules, draft: Order[], ready: boolean): Step[] {
+/** The moves worth making this turn, most useful first. Empty when there is nothing the child can pay for. */
+export function advise(s: GameState, rules: Rules): Step[] {
   const me = s.kingdoms.find((k) => k.id === s.me);
   if (!me || s.finished) return [];
-  const free = (me.gold ?? 0) - draft.reduce((sum, o) => sum + goldCost(o, rules, s), 0);
+  const free = me.gold ?? 0;
   const mine = s.settlements.filter((x) => x.owner === me.id);
   const castle = mine.find((x) => x.castle);
   const villages = mine.filter((x) => !x.castle);
   const out: Step[] = [];
-  let todo = 0;
 
-  const ordered = (match: (o: Order) => boolean) => draft.some(match);
-  const offer = (step: Omit<Step, 'done'>, done: boolean, cost: number) => {
-    if (out.some((x) => x.id === step.id)) return;
-    if (done) out.push({ ...step, done: true });
-    else if (todo < MAX_TODO && cost <= free) {
-      out.push({ ...step, done: false });
-      todo++;
-    }
+  const offer = (step: Step, cost: number) => {
+    if (cost <= free && !out.some((x) => x.id === step.id)) out.push(step);
   };
   const buildIn = (st: SettlementView | undefined, b: BuildingType, why: string) => {
-    if (!st) return;
-    const done = ordered((o) => o.order === 'build' && o.settlementId === st.id && o.building === b);
-    const busy = ordered((o) => o.order === 'build' && o.settlementId === st.id && o.building !== b);
-    if (!done && (busy || !buildOptions(rules, s, st, me.palaceDone).includes(b))) return;
+    if (!st || !buildOptions(rules, s, st, me.palaceDone).includes(b)) return;
     offer({
       id: `build-${st.id}-${b}`,
+      move: 'BUILD',
       text: t('adv.build', { building: t(`b.${b}`), place: placeName(st.name), cost: buildingCost(rules, b) }),
       why,
       target: { kind: 'settlement', id: st.id, building: b },
-    }, done, buildingCost(rules, b));
+    }, buildingCost(rules, b));
   };
 
   // 1. hunger and sadness first: they make the kingdom poorer every turn
@@ -66,12 +77,10 @@ export function advise(s: GameState, rules: Rules, draft: Order[], ready: boolea
   const soldiers = s.units.filter((u) => u.owner === me.id).length;
   if ((me.food ?? 0) < families + soldiers) {
     for (const v of villages) buildIn(v, 'FARM', t('adv.why.farmHungry'));
-    const buying = ordered((o) => o.order === 'market' && o.buyFood > 0);
-    offer({ id: 'buy-food', text: t('adv.buyFood'), why: t('adv.why.buyFood'), target: { kind: 'tab', tab: 'market' } }, buying, s.foodPrice * 3);
+    offer({ id: 'buy-food', move: 'ECONOMY', text: t('adv.buyFood'), why: t('adv.why.buyFood'), target: { kind: 'panel' } }, s.foodPrice * 3);
   }
   if (me.mood === 'SAD' && me.tax !== 'LOW') {
-    const lowered = ordered((o) => o.order === 'setTax' && o.rate === 'LOW');
-    offer({ id: 'tax-low', text: t('adv.lowTax'), why: t('adv.why.lowTax'), target: { kind: 'tab', tab: 'market' } }, lowered, 0);
+    offer({ id: 'tax-low', move: 'ECONOMY', text: t('adv.lowTax'), why: t('adv.why.lowTax'), target: { kind: 'panel' } }, 0);
   }
 
   // 2. investments that pay back, cheapest lesson first: a market in the castle, a farm, a gold mine
@@ -79,24 +88,25 @@ export function advise(s: GameState, rules: Rules, draft: Order[], ready: boolea
   for (const v of villages) buildIn(v, 'FARM', t('adv.why.farm'));
   const hills = hillsForMine(s, me);
   if (hills) {
-    const done = ordered((o) => o.order === 'buildOnTile' && o.building === 'GOLD_MINE');
     offer({
       id: 'mine',
+      move: 'BUILD',
       text: t('adv.mine', { cost: buildingCost(rules, 'GOLD_MINE') }),
       why: t('adv.why.mine', { n: rules.balance.goldMineIncome ?? 10 }),
       target: { kind: 'tile', pos: hills, building: 'GOLD_MINE' },
-    }, done, buildingCost(rules, 'GOLD_MINE'));
+    }, buildingCost(rules, 'GOLD_MINE'));
   }
 
   // 3. a free treasure: walk an idle army towards the nearest old ruins
-  const trip = ruinsTrip(s, rules, draft, me);
+  const trip = ruinsTrip(s, rules, me);
   if (trip) {
     offer({
       id: `ruins-${trip.unit.id}`,
+      move: 'ARMY',
       text: t('adv.ruins', { unit: t(`u.${trip.unit.type}`) }),
       why: t('adv.why.ruins'),
       target: { kind: 'unit', id: trip.unit.id, dest: trip.dest },
-    }, trip.done, 0);
+    }, 0);
   }
 
   // 4. later in the game: more markets, the Great Palace, the treasury
@@ -107,30 +117,31 @@ export function advise(s: GameState, rules: Rules, draft: Order[], ready: boolea
     if (v.families >= v.capacity) buildIn(v, 'INN', t('adv.why.inn'));
   }
 
-  // nothing to do and nothing affordable: tell the child that saving is a good move too
-  if (!out.length) {
-    const next = cheapestWish(s, rules, me, castle, villages);
-    if (next && next.cost > free) {
-      out.push({
-        id: 'save', done: true, target: { kind: 'none' },
-        text: t('adv.save', { building: t(`b.${next.building}`), cost: next.cost, n: Math.max(0, free) }),
-      });
-    }
+  // 5. a friend to trade with: both kingdoms earn every turn
+  const partner = s.turn >= 3 ? s.kingdoms.find((k) => k.id !== me.id
+    && !s.treaties.some((tr) => tr.type === 'TRADE' && (tr.a === k.id || tr.b === k.id) && (tr.a === me.id || tr.b === me.id))) : undefined;
+  if (partner) {
+    offer({
+      id: 'trade',
+      move: 'DIPLOMACY',
+      text: t('adv.trade'),
+      why: t('adv.why.trade', { n: rules.balance.tradeDealIncome ?? 5 }),
+      target: { kind: 'panel' },
+    }, 0);
   }
-
-  out.push({
-    id: 'ready',
-    text: t('adv.ready'),
-    why: out.some((x) => !x.done) ? t('adv.why.readyLater') : t('adv.why.ready'),
-    target: { kind: 'ready' },
-    done: ready,
-  });
   return out;
 }
 
-/** The step to light up now: the first one not done yet. */
-export function current(steps: Step[]): Step | undefined {
-  return steps.find((x) => !x.done && x.target.kind !== 'none');
+/** When nothing is worth buying yet: Grosik says that saving up is a good move too. */
+export function saving(s: GameState, rules: Rules): string | undefined {
+  const me = s.kingdoms.find((k) => k.id === s.me);
+  if (!me) return undefined;
+  const mine = s.settlements.filter((x) => x.owner === me.id);
+  const next = cheapestWish(s, rules, me, mine.find((x) => x.castle), mine.filter((x) => !x.castle));
+  const free = me.gold ?? 0;
+  return next && next.cost > free
+    ? t('adv.save', { building: t(`b.${next.building}`), cost: next.cost, n: Math.max(0, free) })
+    : undefined;
 }
 
 /** A field of hills in the child's land with nothing on it yet, nearest to the castle. */
@@ -148,20 +159,12 @@ function hillsForMine(s: GameState, me: KingdomView): Pos | undefined {
   return best;
 }
 
-/** An army with no orders and old ruins not far away: where to step this turn to get closer. */
-function ruinsTrip(s: GameState, rules: Rules, draft: Order[], me: KingdomView):
-  { unit: UnitView; dest: Pos; done: boolean } | undefined {
+/** An army with old ruins not far away: where to step this turn to get closer. */
+function ruinsTrip(s: GameState, rules: Rules, me: KingdomView): { unit: UnitView; dest: Pos } | undefined {
   if (!s.map.ruins.length) return undefined;
   for (const u of s.units.filter((x) => x.owner === me.id && x.type !== 'SETTLER')) {
     const ruin = [...s.map.ruins].sort((a, b) => distance(a, u.pos) - distance(b, u.pos))[0];
     if (distance(ruin, u.pos) > 6) continue;
-    const planned = draft.find((o) => (o.order === 'move' || o.order === 'attack') && o.unitId === u.id);
-    if (planned) {
-      if (planned.order !== 'move') continue;
-      const end = planned.path[planned.path.length - 1];
-      if (distance(end, ruin) < distance(u.pos, ruin)) return { unit: u, dest: end, done: true };
-      continue;
-    }
     const paths = reachable(s, u, unitRule(rules, u.type).move);
     let dest: Pos | undefined;
     for (const k of paths.keys()) {
@@ -170,7 +173,7 @@ function ruinsTrip(s: GameState, rules: Rules, draft: Order[], me: KingdomView):
       if (s.units.some((o) => samePos(o.pos, p)) || s.settlements.some((o) => samePos(o.pos, p))) continue;
       if (!dest || closer(p, dest, ruin)) dest = p;
     }
-    if (dest && distance(dest, ruin) < distance(u.pos, ruin)) return { unit: u, dest, done: false };
+    if (dest && distance(dest, ruin) < distance(u.pos, ruin)) return { unit: u, dest };
   }
   return undefined;
 }

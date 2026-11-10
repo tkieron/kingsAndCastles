@@ -61,7 +61,7 @@ public final class ComputerKing {
         return out;
     }
 
-    /** Smaller is more urgent: fight back first, then hunger and sadness, then building or the army. */
+    /** Smaller is more urgent: fight back first, then hunger, sadness and a new friend, then building or the army. */
     private static int rank(Order o, Kingdom k, boolean armyFirst) {
         return switch (o) {
             case Order.Attack a -> 0;
@@ -72,7 +72,7 @@ public final class ComputerKing {
             case Order.BuildOnTile b -> armyFirst ? 4 : 2;
             case Order.Build b -> armyFirst ? 5 : 3;
             case Order.MarketTrade m -> 7;
-            case Order.ProposeTreaty p -> 8;
+            case Order.ProposeTreaty p -> 1;
             default -> 9;
         };
     }
@@ -170,9 +170,12 @@ public final class ComputerKing {
 
         // pro kings look for friends
         if (level == Controller.AI_PRO && s.turn % 4 == 1) {
+            // the nearest neighbour, so that not every king writes to the same one
+            Optional<Pos> home = s.castleOf(kingdomId).map(c -> c.pos);
             s.kingdoms.values().stream()
                     .filter(o -> !o.id.equals(kingdomId) && !s.hasTreaty(kingdomId, o.id, TreatyType.TRADE))
-                    .findFirst()
+                    .min(Comparator.comparingInt(o -> home.flatMap(h -> s.castleOf(o.id).map(c -> c.pos.distance(h)))
+                            .orElse(Integer.MAX_VALUE)))
                     .ifPresent(o -> out.add(new Order.ProposeTreaty(o.id, TreatyType.TRADE)));
         }
         // each wish on its own must be a valid order; the chosen move is checked again as a whole

@@ -122,6 +122,7 @@ export type Order =
   | { order: 'buyFreedom' }
   | { order: 'proposeTreaty'; to: string; type: TreatyType }
   | { order: 'acceptTreaty'; from: string; type: TreatyType }
+  | { order: 'rejectTreaty'; from: string; type: TreatyType }
   | { order: 'breakTreaty'; with: string; type: TreatyType };
 
 export interface Rules {

@@ -301,3 +301,30 @@ h2 { font-size: 22px; }
 .tut-buttons .btn-ready { padding: 8px 18px; font-size: 18px; }
 .help { font-family: var(--pixel); min-width: 34px; }
 @media (prefers-reduced-motion: reduce) { .tut-hole { transition: none; } }
+
+/* ------------------------------------------------------------ one turn, one move */
+.kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 6px 0 4px; }
+.kind-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; cursor: pointer;
+  background: var(--parch-light); color: var(--parch-ink); border: 3px solid var(--parch-ink); box-shadow: 0 3px 0 var(--parch-ink);
+  padding: 8px 6px; font: inherit;
+}
+.kind-btn:hover:not(:disabled) { background: #ffe7a6; }
+.kind-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--parch-ink); }
+.kind-btn:disabled { opacity: 0.6; cursor: default; }
+.kind-icon { font-size: 28px; line-height: 1; }
+.kind-name { font-family: var(--pixel); font-size: 18px; font-weight: 700; }
+.kind-sub { font-size: 12px; color: var(--parch-muted); font-weight: 600; line-height: 1.2; }
+.kind-star { font-size: 11px; font-weight: 800; color: #8a5a00; }
+@media (max-width: 600px) { .kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.link {
+  align-self: flex-start; background: none; border: none; padding: 2px 0; font: inherit; font-size: 13px; font-weight: 700;
+  color: var(--parch-ink); text-decoration: underline; cursor: pointer;
+}
+.need-kind { display: flex; flex-direction: column; gap: 6px; border-top: 2px dashed #d8c79a; padding-top: 6px; }
+.need-kind p { margin: 0; }
+.intro { display: flex; flex-direction: column; gap: 10px; }
+.intro-item { background: var(--parch-light); border: 2px solid var(--parch-muted); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.intro-item p { margin: 0; font-weight: 700; }
+.intro-item.war { border-color: #b8322a; background: #fbe3df; }
+.btn-ready:disabled { opacity: 0.5; cursor: default; }
