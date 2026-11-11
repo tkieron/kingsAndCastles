@@ -294,6 +294,7 @@ h2 { font-size: 22px; }
   box-shadow: 0 8px 0 var(--ink);
 }
 .tut-card.middle { left: 50% !important; top: 50% !important; bottom: auto !important; transform: translate(-50%, -50%); }
+.tut-card { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; }
 .tut-card.inside { bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important; top: auto !important; }
 .tut-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .tut-count { font-family: var(--pixel); color: var(--parch-muted); font-size: 14px; }
@@ -383,8 +384,10 @@ h2 { font-size: 22px; }
 .bubble-left::before {
   content: ''; position: absolute; left: -10px; top: 18px; border: 8px solid transparent; border-right-color: var(--parch-ink); border-left: 0;
 }
-@media (max-width: 520px) {
-  .tut-grosik svg { width: 48px; height: 54px; }
+@media (max-width: 520px), (max-height: 700px) {
+  .tut-grosik svg { width: 44px; height: 50px; }
+  .tut-speech { gap: 10px; }
+  .bubble-left { padding: 6px 8px; }
   .tut-text { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {

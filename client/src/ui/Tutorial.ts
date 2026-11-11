@@ -125,7 +125,7 @@ export class Tutorial {
     this.card.replaceChildren(
       h('div', { class: 'tut-head' },
         h('span', { class: 'tut-count' }, t('tut.count', { n: this.step + 1, all: this.steps.length })),
-        last ? null : h('button', { class: 'btn small', onclick: () => this.close() }, t('tut.skip'))),
+        h('button', { class: 'btn small', onclick: () => this.close() }, t(last ? 'tip.close' : 'tut.skip'))),
       h('div', { class: 'tut-speech' },
         h('div', { class: 'tut-grosik' }, grosikSvg(s.mood ?? 'talk', 64)),
         h('p', { class: 'tut-text bubble-left' }, t(s.key, this.params))),
@@ -166,5 +166,12 @@ export class Tutorial {
     const cardWidth = Math.min(420, window.innerWidth - 32);
     const centre = (left + right) / 2;
     this.card.style.left = `${Math.max(16, Math.min(window.innerWidth - cardWidth - 16, centre - cardWidth / 2))}px`;
+    // a tall card on a small phone must never leave the screen, or its buttons cannot be reached
+    const c = this.card.getBoundingClientRect();
+    if (c.bottom > window.innerHeight - 8 || c.top < 8) {
+      this.card.className = 'tut-card inside';
+      this.card.style.top = '';
+      this.card.style.bottom = '';
+    }
   }
 }
