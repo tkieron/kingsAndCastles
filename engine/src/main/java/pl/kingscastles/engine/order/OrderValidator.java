@@ -62,12 +62,13 @@ public final class OrderValidator {
             gold += o.goldCost(s);
             food += o.foodCost();
         }
-        // one move per turn: answers to offers are free, everything else counts, all of one kind
+        // one move per turn: answers to offers are free, everything else is of one kind
         List<Order> actions = orders.stream().filter(o -> o.category() != Order.Category.ANSWER).toList();
         if (actions.stream().map(Order::category).distinct().count() > 1) {
             out.add(new Problem(-1, "error.oneKindPerTurn"));
         }
-        if (actions.size() > s.balance.actionsPerTurn) {
+        // an Army move walks or attacks with every army; training one or founding a village counts as the move
+        if (actions.stream().filter(o -> !o.armyStep()).count() > s.balance.actionsPerTurn) {
             out.add(new Problem(-1, s.balance.actionsPerTurn == 1 ? "error.oneMovePerTurn" : "error.tooManyMoves"));
         }
         int available = k.gold + (loan ? s.balance.loanAmount : 0);
@@ -125,7 +126,17 @@ public final class OrderValidator {
                 if (u.isEmpty() || !u.get().owner.equals(k.id)) {
                     yield "error.notYourUnit";
                 }
-                yield u.get().type == UnitType.SETTLER ? null : "error.notASettler";
+                if (u.get().type != UnitType.SETTLER) {
+                    yield "error.notASettler";
+                }
+                // the settler founds where it stands (one move a turn: it cannot walk and found together)
+                Terrain ground = s.map.tile(u.get().pos).terrain;
+                if (ground == Terrain.RIVER || !ground.passable) {
+                    yield "error.villageNotHere";
+                }
+                Pos at = u.get().pos;
+                yield s.settlements.stream().anyMatch(st -> st.pos.distance(at) < s.balance.settlerMinDistance)
+                        ? "error.villageTooClose" : null;
             }
             case Gift g -> {
                 if (s.kingdom(g.to()) == null || g.to().equals(k.id)) {

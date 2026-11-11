@@ -97,4 +97,25 @@ class OneMoveTest {
         assertEquals(List.of("error.noSuchProposal"),
                 keys(OrderValidator.validate(w.s, "owl", List.of(new Order.RejectTreaty("fox", TreatyType.PACT)))));
     }
+
+    @Test
+    void anArmyMoveTakesEveryArmyAlongAndMayAlsoTrainOne() {
+        TestWorld w = oneMove();
+        w.kingdom("fox", 100);
+        Settlement castle = w.castle("fox", 2, 2);
+        var a = w.unit("fox", pl.kingscastles.engine.model.UnitType.SPEARMAN, 5, 5);
+        var b = w.unit("fox", pl.kingscastles.engine.model.UnitType.KNIGHT, 8, 5);
+        assertTrue(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Move(a.id, List.of(TestWorld.p(6, 5))),
+                new Order.Move(b.id, List.of(TestWorld.p(9, 5))),
+                new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN))).isEmpty());
+        assertTrue(keys(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Move(a.id, List.of(TestWorld.p(6, 5))),
+                new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN),
+                new Order.TakeLoan()))).contains("error.oneKindPerTurn"));
+        Settlement village = w.village("fox", 10, 9);
+        assertTrue(keys(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN),
+                new Order.Recruit(village.id, pl.kingscastles.engine.model.UnitType.SPEARMAN)))).contains("error.oneMovePerTurn"));
+    }
 }

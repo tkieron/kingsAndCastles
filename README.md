@@ -19,7 +19,8 @@ turn report (Chronicle events with translation keys, each kingdom's Ledger, pres
 
 One turn is one move. At the start of a turn a kingdom first answers treaty offers (accept or decline, free), then
 picks one kind of move (army, buildings, economy or diplomacy) and gives one order of that kind
-(`Balance.actionsPerTurn`, 1). Computer kings play by the same rule. The client shows the offers, and news that
+(`Balance.actionsPerTurn`, 1). An Army move also walks or attacks with every army at once; training an army or
+founding a village is the counted move. Computer kings play by the same rule. The client shows the offers, and news that
 someone broke a treaty with you, as a card before the move.
 
 A turn is resolved in fixed phases, so the result never depends on who clicked first:

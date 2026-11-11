@@ -63,9 +63,11 @@ class ComputerKingTest {
         for (int t = 0; t < 30 && !g.state().finished; t++) {
             for (Kingdom k : g.state().kingdoms.values()) {
                 if (!k.isHuman()) {
-                    long moves = ComputerKing.orders(g.state(), k.id, k.controller).stream()
-                            .filter(o -> o.category() != Order.Category.ANSWER).count();
-                    assertTrue(moves <= 1, k.id + " made " + moves + " moves in turn " + g.state().turn);
+                    var orders = ComputerKing.orders(g.state(), k.id, k.controller).stream()
+                            .filter(o -> o.category() != Order.Category.ANSWER).toList();
+                    long moves = orders.stream().filter(o -> !o.armyStep()).count();
+                    long kinds = orders.stream().map(Order::category).distinct().count();
+                    assertTrue(moves <= 1 && kinds <= 1, k.id + " gave " + orders + " in turn " + g.state().turn);
                 }
             }
             g.endTurn();

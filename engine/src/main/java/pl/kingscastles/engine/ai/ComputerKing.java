@@ -45,7 +45,7 @@ public final class ComputerKing {
         return keepValid(s, kingdomId, oneMove(s, kingdomId, wishes, armyFirst));
     }
 
-    /** Keeps the answers and the most useful move (and more moves of the same kind, if the rules allow). */
+    /** Keeps the answers and the most useful move; an Army move also walks and attacks with every army. */
     static List<Order> oneMove(GameState s, String kingdomId, List<Order> wishes, boolean armyFirst) {
         Kingdom k = s.kingdom(kingdomId);
         List<Order> out = new ArrayList<>();
@@ -56,7 +56,10 @@ public final class ComputerKing {
         moves.sort(Comparator.comparingInt(o -> rank(o, k, armyFirst)));
         if (!moves.isEmpty()) {
             Order.Category kind = moves.get(0).category();
-            moves.stream().filter(o -> o.category() == kind).limit(Math.max(0, s.balance.actionsPerTurn)).forEach(out::add);
+            moves.stream().filter(o -> o.category() == kind && !o.armyStep())
+                    .limit(Math.max(0, s.balance.actionsPerTurn)).forEach(out::add);
+            // an Army move takes every army along
+            moves.stream().filter(o -> o.category() == kind && o.armyStep()).forEach(out::add);
         }
         return out;
     }

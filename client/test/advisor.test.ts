@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { advise, kindOf, moveOf, saving } from '../src/game/advisor';
+import { advise, armyStep, kindOf, moveOf, saving } from '../src/game/advisor';
+import { nearestVillageSpot, villageSpot } from '../src/game/rules';
 import { setLang } from '../src/i18n';
 import type { GameState, KingdomView, Order, Rules } from '../src/types';
 
@@ -11,7 +12,10 @@ const rules: Rules = {
     { type: 'TREASURY', cost: 80, place: 'CASTLE' },
     { type: 'GREAT_PALACE', cost: 500, place: 'CASTLE' },
   ],
-  units: [{ type: 'SPEARMAN', cost: 20, upkeep: 2, attack: 2, defense: 3, move: 1, needsBarracks: false }],
+  units: [
+    { type: 'SPEARMAN', cost: 20, upkeep: 2, attack: 2, defense: 3, move: 1, needsBarracks: false },
+    { type: 'SETTLER', cost: 60, upkeep: 2, attack: 0, defense: 0, move: 2, needsBarracks: false },
+  ],
   kingdoms: [],
   balance: { palaceInstallment: 100, marketIncome: 5, goldMineIncome: 10, peaceTurns: 5 },
 };
@@ -92,6 +96,32 @@ describe('Grosik, the advisor', () => {
   });
 });
 
+describe('the settler', () => {
+  const withSettler = (x: number, y: number) => {
+    const s = start(0);
+    s.units.push({ id: 9, owner: 'fox', type: 'SETTLER', pos: { x, y } });
+    return s;
+  };
+
+  it('is led away from the castle towards a field where a village may stand', () => {
+    const step = advise(withSettler(3, 2), { ...rules, balance: { ...rules.balance, settlerMinDistance: 3 } }).find((x) => x.id === 'settler-9');
+    expect(step?.move).toBe('ARMY');
+    expect(step?.target.kind).toBe('unit');
+  });
+
+  it('founds the village once it stands on a good field', () => {
+    const steps = advise(withSettler(9, 2), { ...rules, balance: { ...rules.balance, settlerMinDistance: 3 } });
+    expect(steps[0]).toMatchObject({ id: 'found-9', move: 'ARMY', target: { kind: 'unit', id: 9, dest: { x: 9, y: 2 } } });
+  });
+
+  it('knows the good and the bad fields', () => {
+    const s = withSettler(9, 2);
+    expect(villageSpot(s, rules, { x: 9, y: 2 })).toBe('ok');
+    expect(villageSpot(s, rules, { x: 6, y: 2 })).toBe('tooClose');
+    expect(nearestVillageSpot(s, rules, { x: 5, y: 3 })).toEqual({ x: 8, y: 0 });
+  });
+});
+
 describe('one turn, one move', () => {
   it('sorts every order into a kind of move; answers to offers are free', () => {
     const kinds = ([
@@ -107,5 +137,11 @@ describe('one turn, one move', () => {
     const draft: Order[] = [{ order: 'acceptTreaty', from: 'owl', type: 'PACT' }, { order: 'setTax', rate: 'LOW' }];
     expect(moveOf(draft)).toEqual({ order: 'setTax', rate: 'LOW' });
     expect(moveOf(draft.slice(0, 1))).toBeUndefined();
+  });
+
+  it('lets an Army move walk every army; training one is the counted move', () => {
+    expect(armyStep({ order: 'move', unitId: 1, path: [] })).toBe(true);
+    expect(armyStep({ order: 'attack', unitId: 1, target: { x: 0, y: 0 } })).toBe(true);
+    expect(armyStep({ order: 'recruit', settlementId: 1, unit: 'SPEARMAN' })).toBe(false);
   });
 });

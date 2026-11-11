@@ -23,6 +23,14 @@ public sealed interface Order {
 
     Category category();
 
+    /**
+     * Walking or attacking with one army. An Army move may give one of these to every army at once;
+     * they do not count towards {@link pl.kingscastles.engine.Balance#actionsPerTurn}.
+     */
+    default boolean armyStep() {
+        return false;
+    }
+
     /** Gold this order needs. It is reserved when the turn is resolved, so the same gold cannot be spent twice. */
     default int goldCost(GameState s) {
         return 0;
@@ -79,6 +87,11 @@ public sealed interface Order {
     /** Path of fields to walk, not including the unit's current field. */
     record Move(int unitId, List<Pos> path) implements Order {
         @Override
+        public boolean armyStep() {
+            return true;
+        }
+
+        @Override
         public Category category() {
             return Category.ARMY;
         }
@@ -89,6 +102,11 @@ public sealed interface Order {
     }
 
     record Attack(int unitId, Pos target) implements Order {
+        @Override
+        public boolean armyStep() {
+            return true;
+        }
+
         @Override
         public Category category() {
             return Category.ARMY;

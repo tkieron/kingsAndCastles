@@ -1,6 +1,8 @@
 import { t } from '../i18n';
 import type { BuildingType, GameState, KingdomView, Order, Pos, Rules, SettlementView, UnitView } from '../types';
-import { buildOptions, buildingCost, distance, improvementAt, reachable, samePos, terrainAt, territory, unitRule } from './rules';
+import {
+  buildOptions, buildingCost, distance, improvementAt, nearestVillageSpot, reachable, samePos, terrainAt, territory, unitRule, villageSpot,
+} from './rules';
 import { placeName } from './text';
 
 /**
@@ -23,6 +25,11 @@ export function kindOf(o: Order): Kind | 'ANSWER' {
     case 'gift': case 'buyFreedom': case 'proposeTreaty': case 'breakTreaty': return 'DIPLOMACY';
     case 'acceptTreaty': case 'rejectTreaty': return 'ANSWER';
   }
+}
+
+/** Walking or attacking: an Army move may give one to every army (the engine's Order.armyStep). */
+export function armyStep(o: Order): boolean {
+  return o.order === 'move' || o.order === 'attack';
 }
 
 /** This turn's move, if the child has chosen it already. */
@@ -83,7 +90,30 @@ export function advise(s: GameState, rules: Rules): Step[] {
     offer({ id: 'tax-low', move: 'ECONOMY', text: t('adv.lowTax'), why: t('adv.why.lowTax'), target: { kind: 'panel' } }, 0);
   }
 
-  // 2. investments that pay back, cheapest lesson first: a market in the castle, a farm, a gold mine
+  // 2. a settler waits for its new village: found it here, or walk to the nearest good field
+  for (const u of s.units.filter((x) => x.owner === me.id && x.type === 'SETTLER')) {
+    if (villageSpot(s, rules, u.pos) === 'ok') {
+      offer({ id: `found-${u.id}`, move: 'ARMY', text: t('adv.found'), why: t('adv.why.found'), target: { kind: 'unit', id: u.id, dest: u.pos } }, 0);
+      continue;
+    }
+    const spot = nearestVillageSpot(s, rules, u.pos);
+    if (!spot) continue;
+    let dest: Pos | undefined;
+    for (const k of reachable(s, u, unitRule(rules, u.type).move).keys()) {
+      const [x, y] = k.split(',').map(Number);
+      const p = { x, y };
+      if (s.units.some((o) => samePos(o.pos, p)) || s.settlements.some((o) => samePos(o.pos, p))) continue;
+      if (!dest || closer(p, dest, spot)) dest = p;
+    }
+    if (dest && distance(dest, spot) < distance(u.pos, spot)) {
+      offer({
+        id: `settler-${u.id}`, move: 'ARMY', text: t('adv.settlerWalk', { n: distance(u.pos, spot) }), why: t('adv.why.found'),
+        target: { kind: 'unit', id: u.id, dest },
+      }, 0);
+    }
+  }
+
+  // 3. investments that pay back, cheapest lesson first: a market in the castle, a farm, a gold mine
   buildIn(castle, 'MARKET', t('adv.why.market', { n: rules.balance.marketIncome ?? 5 }));
   for (const v of villages) buildIn(v, 'FARM', t('adv.why.farm'));
   const hills = hillsForMine(s, me);
@@ -97,7 +127,7 @@ export function advise(s: GameState, rules: Rules): Step[] {
     }, buildingCost(rules, 'GOLD_MINE'));
   }
 
-  // 3. a free treasure: walk an idle army towards the nearest old ruins
+  // 4. a free treasure: walk an idle army towards the nearest old ruins
   const trip = ruinsTrip(s, rules, me);
   if (trip) {
     offer({
@@ -109,7 +139,7 @@ export function advise(s: GameState, rules: Rules): Step[] {
     }, 0);
   }
 
-  // 4. later in the game: more markets, the Great Palace, the treasury
+  // 5. later in the game: more markets, the Great Palace, the treasury
   for (const v of villages) buildIn(v, 'MARKET', t('adv.why.market', { n: rules.balance.marketIncome ?? 5 }));
   if (s.turn > (rules.balance.peaceTurns ?? 5)) buildIn(castle, 'GREAT_PALACE', t('adv.why.palace'));
   buildIn(castle, 'TREASURY', t('adv.why.treasury'));
@@ -117,7 +147,7 @@ export function advise(s: GameState, rules: Rules): Step[] {
     if (v.families >= v.capacity) buildIn(v, 'INN', t('adv.why.inn'));
   }
 
-  // 5. a friend to trade with: both kingdoms earn every turn
+  // 6. a friend to trade with: both kingdoms earn every turn
   const partner = s.turn >= 3 ? s.kingdoms.find((k) => k.id !== me.id
     && !s.treaties.some((tr) => tr.type === 'TRADE' && (tr.a === k.id || tr.b === k.id) && (tr.a === me.id || tr.b === me.id))) : undefined;
   if (partner) {

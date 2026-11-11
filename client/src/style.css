@@ -328,3 +328,6 @@ h2 { font-size: 22px; }
 .intro-item p { margin: 0; font-weight: 700; }
 .intro-item.war { border-color: #b8322a; background: #fbe3df; }
 .btn-ready:disabled { opacity: 0.5; cursor: default; }
+.settler { display: flex; flex-direction: column; gap: 6px; border-top: 2px dashed #d8c79a; padding-top: 6px; }
+.settler p { margin: 0; }
+.btn-ready.found-here { font-size: 20px; }

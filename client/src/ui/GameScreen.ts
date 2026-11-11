@@ -3,10 +3,10 @@ import { append, h, word } from '../dom';
 import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
 import {
-  buildOptions, buildingCost, goldCost, improvementAt, key, neighbours, payback, reachable, samePos,
-  terrainAt, territory, unitRule,
+  buildOptions, buildingCost, distance, goldCost, improvementAt, key, nearestVillageSpot, neighbours, payback, reachable, samePos,
+  terrainAt, territory, unitRule, villageSpot,
 } from '../game/rules';
-import { advise, kindOf, KINDS, moveOf, saving, type Kind, type Step } from '../game/advisor';
+import { advise, armyStep, kindOf, KINDS, moveOf, saving, type Kind, type Step } from '../game/advisor';
 import { inkOn } from '../game/sprites';
 import { INTRO, TOUR, Tutorial, tutorialSeen } from './Tutorial';
 import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season } from '../game/text';
@@ -212,8 +212,12 @@ export class GameScreen {
     if (this.amReady()) return;
     this.draft = this.draft.filter((o) => !same(o));
     if (order && kindOf(order) !== 'ANSWER') {
-      this.draft = this.draft.filter((o) => kindOf(o) === 'ANSWER');
-      this.kind = kindOf(order) as Kind;
+      // a move of another kind replaces everything; within an Army move every army may walk or attack,
+      // but training an army or founding a village is the one counted move
+      const kind = kindOf(order);
+      this.draft = this.draft.filter((o) => kindOf(o) === 'ANSWER'
+        || (kindOf(o) === kind && (armyStep(o) || armyStep(order))));
+      this.kind = kind as Kind;
     }
     if (order) this.draft.push(order);
     // an order was given for the clicked thing: close its choices, so Grosik's next step is what the child sees
@@ -325,8 +329,15 @@ export class GameScreen {
 
   /** Grosik's idea for the kind of move the child picked, while the move is not made yet. */
   private idea(): Step | undefined {
-    if (!this.kind || this.amReady() || moveOf(this.draft)) return undefined;
-    return this.steps.find((x) => x.move === this.kind);
+    if (!this.kind || this.amReady()) return undefined;
+    const move = moveOf(this.draft);
+    if (!move) return this.steps.find((x) => x.move === this.kind);
+    if (this.kind !== 'ARMY') return undefined;
+    // an Army move: the next army without orders
+    const counted = this.draft.some((o) => kindOf(o) === 'ARMY' && !armyStep(o));
+    return this.steps.find((x) => x.move === 'ARMY' && x.target.kind === 'unit'
+      && !(counted && x.id.startsWith('found-'))
+      && !this.draft.some((o) => 'unitId' in o && x.target.kind === 'unit' && o.unitId === x.target.id));
   }
 
   /**
@@ -736,30 +747,62 @@ export class GameScreen {
       box.append(this.nothingHere());
       return box;
     }
+    if (u.type === 'SETTLER') box.append(this.settlerView(u));
     if (this.kind !== 'ARMY') {
-      box.append(this.needKind(['ARMY']));
+      if (u.type !== 'SETTLER') box.append(this.needKind(['ARMY']));
       return box;
     }
     const step = this.idea();
-    if (step?.target.kind === 'unit' && step.target.id === u.id) box.append(h('p', { class: 'suggested-text' }, `★ ${t('adv.clickDest')}`));
+    if (step?.target.kind === 'unit' && step.target.id === u.id && !samePos(step.target.dest, u.pos)) {
+      box.append(h('p', { class: 'suggested-text' }, `★ ${t('adv.clickDest')}`));
+    }
     box.append(h('p', { class: 'small' }, t('sel.moveHint')));
     if (u.type !== 'SETTLER') box.append(h('p', { class: 'small' }, t('sel.attackHint')));
     const planned = this.draft.some((o) => (o.order === 'move' || o.order === 'attack') && o.unitId === u.id);
     if (planned) {
       box.append(h('button', {
         class: 'btn', disabled: this.amReady(),
-        onclick: () => this.setOrder((o) => (o.order === 'move' || o.order === 'attack' || o.order === 'foundVillage') && o.unitId === u.id),
+        onclick: () => this.setOrder((o) => (o.order === 'move' || o.order === 'attack') && o.unitId === u.id),
       }, t('sel.cancelMove')));
     }
-    if (u.type === 'SETTLER') {
+    return box;
+  }
+
+  /**
+   * A settler, made easy: one big "Build a village here" button when the field is good, otherwise why not
+   * and a button that leads it to the nearest good field (Grosik marks it on the map). Works whatever kind
+   * of move was picked: founding a village is an Army move, so it switches to Army.
+   */
+  private settlerView(u: UnitView): HTMLElement {
+    const s = this.state!;
+    const box = h('div', { class: 'settler' });
+    const locked = this.amReady();
+    const founding = this.draft.find((o) => o.order === 'foundVillage' && o.unitId === u.id);
+    if (founding?.order === 'foundVillage') {
+      box.append(h('p', { class: 'suggested-text' }, `✔ ${t('settler.planned', { name: founding.name })}`),
+        h('button', { class: 'btn', disabled: locked, onclick: () => this.setOrder((o) => o === founding) }, t('settler.cancel')));
+      return box;
+    }
+    const spot = villageSpot(s, this.rules, u.pos);
+    if (spot === 'ok') {
       const own = s.settlements.filter((x) => x.owner === s.me).length;
-      const input = h('input', { class: 'input', maxlength: 20, value: `${kingdomName(s.me)} ${own + 1}`, 'aria-label': t('sel.villageName') });
-      box.append(h('div', { class: 'row' }, input,
-        h('button', {
-          class: 'btn', disabled: this.amReady(),
-          onclick: () => this.setOrder((o) => o.order === 'foundVillage' && o.unitId === u.id,
-            { order: 'foundVillage', unitId: u.id, name: input.value.trim() || input.placeholder }),
-        }, t('sel.foundVillage'))));
+      const name = `${kingdomName(s.me)} ${own + 1}`;
+      box.append(h('button', {
+        class: 'btn-ready found-here', disabled: locked,
+        onclick: () => this.setOrder((o) => o.order === 'foundVillage' && o.unitId === u.id, { order: 'foundVillage', unitId: u.id, name }),
+      }, `🏠 ${t('sel.foundVillage')}`),
+      h('p', { class: 'small' }, t('settler.ok', { name })));
+      return box;
+    }
+    box.append(h('p', { class: 'small bad' }, spot === 'tooClose'
+      ? t('settler.tooClose', { n: this.rules.balance.settlerMinDistance ?? 3 })
+      : t('settler.badGround')));
+    const target = nearestVillageSpot(s, this.rules, u.pos);
+    if (target) {
+      box.append(h('p', { class: 'small' }, t('settler.nearest', { n: distance(u.pos, target) })));
+      if (this.kind !== 'ARMY') {
+        box.append(h('button', { class: 'btn-ready small-ready', disabled: locked, onclick: () => this.chooseKind('ARMY') }, `★ ${t('settler.lead')}`));
+      }
     }
     return box;
   }
@@ -982,11 +1025,16 @@ export class GameScreen {
     if (ready) {
       body.append(h('div', { class: 'quest-now' }, t('game.waiting')));
     } else if (move) {
+      const moves = this.draft.filter((o) => kindOf(o) !== 'ANSWER');
+      const next = this.idea();
       append(body,
         h('div', { class: 'quest-label' }, t('w.yourMove')),
-        h('div', { class: 'quest-now' }, `✔ ${t('turn.done', { move: orderText(move, s) })}`),
-        h('div', { class: 'quest-why' }, t('turn.doneWhy')),
-        h('button', { class: 'link', onclick: () => this.setOrder((o) => o === move) }, t('turn.changeMove')));
+        h('div', { class: 'quest-now' }, `✔ ${moves.length > 1
+          ? t('turn.doneMany', { n: moves.length }) : t('turn.done', { move: orderText(move, s) })}`),
+        h('div', { class: 'quest-why' }, this.kind === 'ARMY' ? t('turn.doneArmy') : t('turn.doneWhy')),
+        h('div', { class: 'row wrap' },
+          next ? h('button', { class: 'link', onclick: () => this.showStep(next) }, `★ ${next.text}`) : null,
+          h('button', { class: 'link', onclick: () => this.setOrder((o) => kindOf(o) !== 'ANSWER') }, t('turn.changeMove'))));
       go = h('button', { class: 'btn-ready quest-go', onclick: () => this.endTurnNow() }, t('game.endTurn'));
     } else if (!this.kind) {
       const best = this.steps[0];
