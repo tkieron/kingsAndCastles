@@ -393,3 +393,7 @@ h2 { font-size: 22px; }
 @media (prefers-reduced-motion: reduce) {
   .quest-face, .tut-grosik, .grosik-svg .grosik-lid, .grosik-svg .grosik-jaw, .grosik-svg .grosik-wave, .grosik-pop { animation: none; }
 }
+.who-row { gap: 10px; }
+.who-pick { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; padding: 8px 10px; }
+.who-pick svg { border: 2px solid var(--ink); }
+.col[hidden] { display: none; }

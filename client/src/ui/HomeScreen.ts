@@ -3,7 +3,7 @@ import { h } from '../dom';
 import { getLang, setLang, t, type Lang } from '../i18n';
 import { inkOn } from '../game/sprites';
 import { defaultKingdomName, kingdomName } from '../game/text';
-import { AVATAR_COUNT, avatarSvg } from '../game/avatars';
+import { avatarsOf, avatarSvg, type Who } from '../game/avatars';
 import type { Controller, Rules } from '../types';
 import { castleIcon } from './GameScreen';
 
@@ -12,10 +12,13 @@ const DEFAULT_SEATS: Controller[] = ['HUMAN', 'HUMAN', 'HUMAN', 'AI_PRO', 'AI_BE
 const TURN_LENGTHS = [0, 30, 60, 90, 120, 180];
 
 /**
- * Who the child is: their name (needed), their kingdom's name (optional: empty keeps the kingdom's own name)
- * and one of ten pictures. Used on the start screen and in the lobby.
+ * Who the child is: their name (needed), boy or girl (needed: Grosik then says "królu" or "królowo"),
+ * one of ten pictures of that kind, and their kingdom's name (optional: empty keeps the kingdom's own name).
+ * Used on the start screen and in the lobby. check() returns what is still missing, or null.
  */
-export function identityFields(realmPlaceholder = ''): { el: HTMLElement; name: HTMLInputElement; realm: HTMLInputElement; avatar: () => number } {
+export function identityFields(realmPlaceholder = ''): {
+  el: HTMLElement; name: HTMLInputElement; realm: HTMLInputElement; avatar: () => number; check: () => string | null;
+} {
   const name = h('input', {
     class: 'input', maxlength: 20, autocomplete: 'nickname', required: true, 'aria-label': t('home.name'),
   }) as HTMLInputElement;
@@ -24,24 +27,46 @@ export function identityFields(realmPlaceholder = ''): { el: HTMLElement; name: 
   const realm = h('input', {
     class: 'input', maxlength: 24, autocomplete: 'off', 'aria-label': t('home.realm'), placeholder: realmPlaceholder,
   }) as HTMLInputElement;
-  let chosen = Math.floor(Math.random() * AVATAR_COUNT);
-  const buttons = Array.from({ length: AVATAR_COUNT }, (_, i) => h('button', {
-    type: 'button', class: `avatar-pick${i === chosen ? ' chosen' : ''}`, role: 'radio',
-    'aria-checked': String(i === chosen), 'aria-label': t('home.avatarN', { n: i + 1 }),
+  let who: Who | undefined;
+  let chosen: number | undefined;
+  const grid = h('div', { class: 'avatar-grid', role: 'radiogroup', 'aria-label': t('home.avatar') });
+  const pictures = h('div', { class: 'col', hidden: true }, h('span', { class: 'field-title' }, t('home.avatar')), grid);
+  const showPictures = () => {
+    const list = avatarsOf(who!);
+    if (chosen === undefined || !list.includes(chosen)) chosen = list[Math.floor(Math.random() * list.length)];
+    grid.replaceChildren(...list.map((i, n) => h('button', {
+      type: 'button', class: `avatar-pick${i === chosen ? ' chosen' : ''}`, role: 'radio',
+      'aria-checked': String(i === chosen), 'aria-label': t('home.avatarN', { n: n + 1 }),
+      onclick: () => {
+        chosen = i;
+        showPictures();
+      },
+    }, avatarSvg(i, 48))));
+    pictures.hidden = false;
+  };
+  const kinds = (['king', 'queen'] as Who[]).map((k) => h('button', {
+    type: 'button', class: 'btn who-pick', role: 'radio', 'aria-checked': 'false',
     onclick: () => {
-      chosen = i;
-      buttons.forEach((b, j) => {
-        b.classList.toggle('chosen', j === i);
-        b.setAttribute('aria-checked', String(j === i));
+      who = k;
+      kinds.forEach((b, n) => {
+        const on = (['king', 'queen'] as Who[])[n] === k;
+        b.classList.toggle('chosen', on);
+        b.setAttribute('aria-checked', String(on));
       });
+      showPictures();
     },
-  }, avatarSvg(i, 48)));
+  }, avatarSvg(k === 'king' ? 0 : 10, 28), t(k === 'king' ? 'home.boy' : 'home.girl')));
   const el = h('div', { class: 'col gap' },
     h('label', { class: 'col' }, h('span', {}, t('home.name'), h('span', { class: 'need' }, ' *')), name),
-    h('div', { class: 'col' }, h('span', { class: 'field-title' }, t('home.avatar')),
-      h('div', { class: 'avatar-grid', role: 'radiogroup', 'aria-label': t('home.avatar') }, ...buttons)),
+    h('div', { class: 'col' }, h('span', { class: 'field-title' }, t('home.who'), h('span', { class: 'need' }, ' *')),
+      h('div', { class: 'row who-row', role: 'radiogroup', 'aria-label': t('home.who') }, ...kinds)),
+    pictures,
     h('label', { class: 'col' }, t('home.realm'), realm, h('span', { class: 'small muted-dark' }, t('home.realmHint'))));
-  return { el, name, realm, avatar: () => chosen };
+  return {
+    el, name, realm,
+    avatar: () => chosen ?? 0,
+    check: () => (!name.value.trim() ? t('error.badName') : who ? null : t('home.whoMissing')),
+  };
 }
 
 /** First screen: join with a code, or (for the teacher or parent) create a room. */
@@ -73,6 +98,12 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
       error.textContent = '';
       try {
         const c = code.value.replace(/\D/g, '');
+        const missing = who.check();
+        if (missing) {
+          error.textContent = missing;
+          error.scrollIntoView({ block: 'center' });
+          return;
+        }
         const r = await api.join(c, who.name.value, who.realm.value, who.avatar());
         const seat = { code: c, token: r.token };
         saveSeat(seat);
@@ -141,6 +172,12 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
     onsubmit: async (e: Event) => {
       e.preventDefault();
       error.textContent = '';
+      const missing = soloWho.check();
+      if (missing) {
+        error.textContent = missing;
+        error.scrollIntoView({ block: 'center' });
+        return;
+      }
       try {
         const level = soloLevel.value as Controller;
         const r = await api.create({

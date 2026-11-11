@@ -73,7 +73,7 @@ export const api = {
   lobby: (code: string) => isLocal()
     ? callLocal((m) => m.localApi.lobby(code))
     : call<Lobby>('GET', `/api/rooms/${code}`),
-  /** realm: the kingdom's name (empty: the kingdom keeps its own name); avatar: the chosen picture, 0-9 */
+  /** realm: the kingdom's name (empty: the kingdom keeps its own name); avatar: the chosen picture, 0-9 kings, 10-19 queens */
   join: (code: string, name: string, realm = '', avatar = 0) => isLocal()
     ? callLocal((m) => m.localApi.join(code, name, realm, avatar))
     : call<{ token: string; seat: number; kingdom: string }>('POST', `/api/rooms/${code}/join`, { name, realm, avatar }),

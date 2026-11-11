@@ -14,7 +14,7 @@ export class LocalError extends Error {
   }
 }
 
-/** realm: the kingdom's name chosen by the child (missing: the kingdom keeps its own name); avatar: the picture, 0-9. */
+/** realm: the kingdom's name chosen by the child (missing: the kingdom keeps its own name); avatar: the picture, 0-9 kings, 10-19 queens. */
 interface Player { token: string; name: string; seat: number; realm?: string; avatar?: number }
 interface TurnRecord { orders: Record<string, Order[]>; present: string[] }
 interface RoomRecord {
@@ -31,7 +31,7 @@ type Listener = { token?: string; hostToken?: string; send: (m: ServerMessage) =
 
 const SAVE_KEY = 'kc.local.room';
 const TURN_LENGTHS = [0, 30, 60, 90, 120, 180];
-const AVATARS = 10;
+const AVATARS = 20;
 const REALM_MAX = 24;
 
 let rulesCache: Rules | null = null;

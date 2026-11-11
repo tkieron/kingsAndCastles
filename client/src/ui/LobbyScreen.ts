@@ -51,6 +51,12 @@ export class LobbyScreen {
             class: 'card-light col gap',
             onsubmit: async (e: Event) => {
               e.preventDefault();
+              const missing = who.check();
+              if (missing) {
+                this.error = missing;
+                this.render();
+                return;
+              }
               try {
                 const r = await api.join(l.code, who.name.value, who.realm.value, who.avatar());
                 this.seat = { ...this.seat, token: r.token };

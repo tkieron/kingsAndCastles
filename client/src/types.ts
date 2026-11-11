@@ -28,7 +28,7 @@ export interface Seat {
   player?: string;
   /** the kingdom's name chosen by the child; missing = the kingdom's own name */
   realm?: string;
-  /** the child's picture, 0-9 */
+  /** the child's picture, 0-9 kings, 10-19 queens */
   avatar?: number;
 }
 
@@ -41,7 +41,7 @@ export interface KingdomView {
   playerName?: string;
   /** the kingdom's name chosen by the child; missing = the kingdom's own name */
   realm?: string;
-  /** the child's picture, 0-9 (only for children's kingdoms) */
+  /** the child's picture, 0-9 kings, 10-19 queens (only for children's kingdoms) */
   avatar?: number;
   controller: Controller;
   autopilot: boolean;

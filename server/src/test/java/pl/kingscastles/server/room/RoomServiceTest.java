@@ -45,13 +45,13 @@ class RoomServiceTest {
     }
 
     @Test
-    void theKingdomNameIsOptionalAndThePictureIsOneOfTen() {
+    void theKingdomNameIsOptionalAndThePictureIsOneOfTwenty() {
         RoomService s = service();
         Room room = s.create(TWO_CHILDREN_NO_CLOCK);
         assertEquals("error.badRealm", assertThrows(GameException.class,
                 () -> s.join(room.code(), "Ania", "x".repeat(25), 0)).key);
         assertEquals("error.badRequest", assertThrows(GameException.class,
-                () -> s.join(room.code(), "Ania", "", 10)).key);
+                () -> s.join(room.code(), "Ania", "", 20)).key);
         Player ania = s.join(room.code(), "Ania", "  Słoneczna Dolina ", 7);
         Player bartek = s.join(room.code(), "Bartek", "   ", 2);
         assertEquals("Słoneczna Dolina", ania.realm());
