@@ -2,7 +2,9 @@ import { api, ApiError, saveSeat, type Seat } from '../api';
 import { append, h } from '../dom';
 import { t } from '../i18n';
 import { inkOn } from '../game/sprites';
-import { kingdomName } from '../game/text';
+import { kingdomName, setRealms } from '../game/text';
+import { avatarSvg } from '../game/avatars';
+import { identityFields } from './HomeScreen';
 import type { Lobby } from '../types';
 
 /** Waiting room: shows the code, who sits where, and the host's Start button. */
@@ -17,6 +19,7 @@ export class LobbyScreen {
   update(lobby: Lobby, host: boolean): void {
     this.lobby = lobby;
     this.host = host;
+    setRealms(lobby.seats.map((s) => ({ id: s.kingdom, realm: s.realm })));
     this.render();
   }
 
@@ -25,13 +28,15 @@ export class LobbyScreen {
     if (!l) return;
     const link = `${location.origin}${location.pathname}?room=${l.code}`;
     const seats = h('ol', { class: 'lobby-seats' }, ...l.seats.map((s) => h('li', { class: 'row' },
-      h('div', { class: 'badge', style: `background:${s.color};color:${inkOn(s.color)}` }, kingdomName(s.kingdom).charAt(0)),
+      s.player
+        ? h('div', { class: 'chip-avatar', style: `border-color:${s.color}` }, avatarSvg(s.avatar, 28))
+        : h('div', { class: 'badge', style: `background:${s.color};color:${inkOn(s.color)}` }, kingdomName(s.kingdom).charAt(0)),
       h('b', { class: 'seat-name' }, kingdomName(s.kingdom)),
       s.controller === 'HUMAN'
         ? h('span', { class: s.player ? '' : 'muted' }, s.player ?? t('lobby.free'))
         : h('span', { class: 'muted' }, t(`ctl.${s.controller}`)))));
     const players = l.seats.filter((s) => s.player).length;
-    const name = h('input', { class: 'input', maxlength: 20, 'aria-label': t('home.name'), placeholder: t('home.name') });
+    const who = identityFields();
     this.root.replaceChildren();
     append(this.root,
       h('h1', {}, t('lobby.title', { code: l.code })),
@@ -43,11 +48,11 @@ export class LobbyScreen {
       this.host
         ? h('div', { class: 'col gap' },
           !this.seat.token ? h('form', {
-            class: 'row',
+            class: 'card-light col gap',
             onsubmit: async (e: Event) => {
               e.preventDefault();
               try {
-                const r = await api.join(l.code, name.value);
+                const r = await api.join(l.code, who.name.value, who.realm.value, who.avatar());
                 this.seat = { ...this.seat, token: r.token };
                 saveSeat(this.seat);
                 this.reconnect(this.seat);
@@ -56,7 +61,7 @@ export class LobbyScreen {
                 this.render();
               }
             },
-          }, name, h('button', { class: 'btn', type: 'submit' }, t('lobby.hostJoin'))) : null,
+          }, who.el, h('button', { class: 'btn', type: 'submit' }, t('lobby.hostJoin'))) : null,
           h('button', {
             class: 'btn-ready',
             onclick: async () => {

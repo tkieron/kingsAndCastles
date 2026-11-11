@@ -118,6 +118,10 @@ export const pl: Record<Key, string> = {
   'home.join': 'Dołącz do gry',
   'home.code': 'Kod pokoju',
   'home.name': 'Twoje imię',
+  'home.realm': 'Nazwa twojego królestwa (nie musisz)',
+  'home.realmHint': 'Zostaw puste, a królestwo dostanie nazwę z urzędu.',
+  'home.avatar': 'Wybierz swoją postać',
+  'home.avatarN': 'Postać {n}',
   'home.joinButton': 'Dołącz',
   'home.create': 'Nowa gra (dla prowadzącego)',
   'home.createButton': 'Załóż pokój',
@@ -332,8 +336,11 @@ export const pl: Record<Key, string> = {
   'terrainHint.L': 'Ryby dla wioski obok.',
 
   'intro.story': 'Witaj, władco! Stary Król oddał koronę i podzielił skarbiec. Ty rządzisz królestwem {kingdom}: masz zamek, wioskę i 100 złota.',
+  'intro.hello': 'Witaj, {title} {name}! Jestem Grosik, moneta z królewskiego skarbca, i będę twoim przewodnikiem. Stary Król oddał koronę i od dziś rządzisz królestwem {kingdom}: masz zamek, wioskę i 100 złota.',
+  'intro.king': 'królu',
+  'intro.queen': 'królowo',
   'intro.goal': 'Za {turns} tur Stary Król wybierze nowego Wielkiego Króla: tego, kto najlepiej zadba o swoje ziemie. Tutaj zawsze widzisz swój cel i swoje miejsce.',
-  'intro.quest': 'Jestem Grosik, skarbnik. Jedna tura to jeden ruch: najpierw wybierz, co robisz (Wojsko, Budowle, Gospodarka albo Dyplomacja), potem zrób jedną rzecz i zakończ turę. Gwiazdka ★ pokazuje, co radzę.',
+  'intro.quest': 'Zawsze siedzę tutaj i pokazuję następny krok. Jedna tura to jeden ruch: najpierw wybierz, co robisz (Wojsko, Budowle, Gospodarka albo Dyplomacja), potem zrób jedną rzecz i zakończ turę. Gwiazdka ★ pokazuje, co radzę. Kliknij mnie, gdy potrzebujesz rady!',
 
   'tip.upkeep': 'Twoje wojsko kosztuje {n} złota co turę. Wykorzystaj je dobrze, bo inaczej tylko zjada złoto!',
   'tip.hungry': 'Mamy mało jedzenia. Zbuduj farmę albo kup jedzenie na targu.',
@@ -342,6 +349,10 @@ export const pl: Record<Key, string> = {
   'tip.peace': 'Czas pokoju: nikt nie może atakować do tury {n}. Buduj!',
   'tip.default': 'Każdy budynek kosztuje złoto teraz, a przynosi złoto później. Planuj!',
   'tip.name': 'Grosik',
+  'tip.click': 'Kliknij Grosika, a coś ci poradzi',
+  'tip.close': 'Zamknij',
+  'tip.joke1': 'Grosz do grosza, a będzie wieża. No, mała wieża.',
+  'tip.joke2': 'Jestem okrągły, więc zawsze wracam do skarbca!',
 
   'chronicle.playerBack': '{kingdom} wraca do gry!',
   'chronicle.loanTaken': 'Wziąłeś pożyczkę: {gold} złota. Oddasz {payBack}.',
@@ -414,6 +425,7 @@ export const pl: Record<Key, string> = {
 
   'error.noSuchRoom': 'Nie ma pokoju z takim kodem.',
   'error.badName': 'Wpisz imię (do 20 liter).',
+  'error.badRealm': 'Nazwa królestwa może mieć do 24 liter.',
   'error.gameStarted': 'Ta gra już się zaczęła.',
   'error.roomFull': 'Pokój jest pełny.',
   'error.notHost': 'Tylko prowadzący może to zrobić.',

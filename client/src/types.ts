@@ -26,6 +26,10 @@ export interface Seat {
   color: string;
   controller: Controller;
   player?: string;
+  /** the kingdom's name chosen by the child; missing = the kingdom's own name */
+  realm?: string;
+  /** the child's picture, 0-9 */
+  avatar?: number;
 }
 
 export interface Lobby { code: string; status: Status; settings: RoomSettings; seats: Seat[] }
@@ -35,6 +39,10 @@ export interface KingdomView {
   name: string;
   color: string;
   playerName?: string;
+  /** the kingdom's name chosen by the child; missing = the kingdom's own name */
+  realm?: string;
+  /** the child's picture, 0-9 (only for children's kingdoms) */
+  avatar?: number;
   controller: Controller;
   autopilot: boolean;
   overlord?: string;

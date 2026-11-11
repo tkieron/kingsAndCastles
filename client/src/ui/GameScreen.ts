@@ -8,8 +8,10 @@ import {
 } from '../game/rules';
 import { advise, armyStep, kindOf, KINDS, moveOf, saving, type Kind, type Step } from '../game/advisor';
 import { inkOn } from '../game/sprites';
-import { INTRO, TOUR, Tutorial, tutorialSeen } from './Tutorial';
-import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season } from '../game/text';
+import { greeted, INTRO, markGreeted, TOUR, Tutorial, tutorialSeen } from './Tutorial';
+import { grosikSvg } from './grosik';
+import { avatarSvg, avatarWho } from '../game/avatars';
+import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season, setRealms } from '../game/text';
 import type {
   BuildingType, ChronicleEvent, GameState, KingdomView, Order, Pos, ProposalView, Problem, Rules, SettlementView, TaxRate, TreatyType,
   UnitType, UnitView,
@@ -48,6 +50,7 @@ export class GameScreen {
   /** The start of a turn: treaty offers and broken treaties are answered first. */
   private intro?: HTMLElement;
   private introTurn = 0;
+  private tipNo = -1;
   private selection: Selection = null;
   private toast = '';
   private timeEl?: HTMLElement;
@@ -106,6 +109,8 @@ export class GameScreen {
       castles: b.militaryWinKingdoms ?? 4,
       gold: b.economicWinGold ?? 300,
       turns: this.state?.maxTurns ?? 20,
+      name: me.playerName ?? '',
+      title: t(avatarWho(me.avatar) === 'queen' ? 'intro.queen' : 'intro.king'),
     }, () => {
       this.tutorial = undefined;
       this.showIntro();
@@ -127,6 +132,7 @@ export class GameScreen {
         const old = was ? { gold: was.gold ?? 0, food: was.food ?? 0 } : undefined;
         this.host = !!m.host;
         this.state = m.state;
+        setRealms(m.state.kingdoms);
         if (before === undefined || m.state.turn !== before) {
           this.draft = [...m.state.myOrders];
           const move = moveOf(this.draft);
@@ -145,7 +151,10 @@ export class GameScreen {
         }
         if (before === undefined && this.me()) this.centreOnCastle();
         this.render();
-        if (before === undefined && this.me() && !m.state.finished && !tutorialSeen()) {
+        // Grosik greets the ruler at the start of every new game (and the first time ever, whenever they come in)
+        const greet = m.state.turn === 1 ? !greeted(m.state.code) : !tutorialSeen();
+        if (before === undefined && this.me() && !m.state.finished && greet) {
+          markGreeted(m.state.code);
           window.setTimeout(() => this.showTutorial(false), 300);
         } else if (!this.summary && !this.tutorial) {
           this.showIntro();
@@ -503,7 +512,9 @@ export class GameScreen {
           class: `chip${k.id === s.me ? ' mine' : ''}`,
           title: `${kingdomName(k.id)} – ${playerLabel(k)}`,
         },
-        h('div', { class: 'badge', style: `background:${k.color};color:${inkOn(k.color)}` }, kingdomName(k.id).charAt(0)),
+        k.controller === 'HUMAN' && k.avatar !== undefined
+          ? h('div', { class: 'chip-avatar', style: `border-color:${k.color}` }, avatarSvg(k.avatar, 24))
+          : h('div', { class: 'badge', style: `background:${k.color};color:${inkOn(k.color)}` }, kingdomName(k.id).charAt(0)),
         h('div', { class: 'chip-text' },
           h('b', {}, kingdomName(k.id)),
           h('span', {}, `${k.prestige} · `, h('i', { class: ready ? 'good' : '' }, state))));
@@ -586,7 +597,7 @@ export class GameScreen {
     const free = (me.gold ?? 0) - this.reserved();
     this.panel.append(
       h('div', { class: 'me' },
-        h('div', { class: 'badge big', style: `background:${me.color};color:${inkOn(me.color)}` }, kingdomName(me.id).charAt(0)),
+        h('div', { class: 'me-avatar', style: `border-color:${me.color}` }, avatarSvg(me.avatar, 52)),
         h('div', { class: 'col' },
           h('span', { class: 'title' }, kingdomName(me.id)),
           h('span', { class: 'muted small' }, `${me.playerName ?? ''} · `, word('w.prestige'), ` ${me.prestige} · ${villages} `, word('w.village'),
@@ -940,7 +951,9 @@ export class GameScreen {
       const mine = s.treaties.filter((tr) => (tr.a === me.id && tr.b === k.id) || (tr.b === me.id && tr.a === k.id));
       const row = h('div', { class: 'kingdom-row' },
         h('div', { class: 'row' },
-          h('span', { class: 'dot', style: `background:${k.color}` }),
+          k.controller === 'HUMAN' && k.avatar !== undefined
+            ? h('span', { class: 'chip-avatar', style: `border-color:${k.color}` }, avatarSvg(k.avatar, 22))
+            : h('span', { class: 'dot', style: `background:${k.color}` }),
           h('b', {}, kingdomName(k.id)),
           h('span', { class: 'small' }, k.playerName ? ` ${k.playerName}` : ` ${t(`ctl.${k.controller}`)}`),
           k.overlord === me.id ? h('span', { class: 'small' }, ' · ', word('w.vassal')) : null,
@@ -1052,7 +1065,36 @@ export class GameScreen {
         h('button', { class: 'link', onclick: () => this.chooseKind(undefined) }, t('turn.change')));
       if (idea) go = h('button', { class: 'btn-ready quest-go', onclick: () => this.showStep(idea) }, t('adv.show'));
     }
-    append(this.quest, h('div', { class: 'quest-face' }, coinFace()), body, go);
+    const face = h('button', {
+      class: 'quest-face', title: t('tip.click'), 'aria-label': t('tip.click'),
+      onclick: () => this.grosikTip(face),
+    }, grosikSvg(ready ? 'happy' : move ? 'wink' : this.kind ? 'talk' : 'think', 48));
+    append(this.quest, face, body, go);
+  }
+
+  /** Clicking Grosik: he pipes up with a piece of advice in a speech bubble, like an old desktop helper. */
+  private grosikTip(face: HTMLElement): void {
+    const s = this.state;
+    const me = this.me();
+    if (!s || !me) return;
+    this.quest.querySelector('.grosik-pop')?.remove();
+    const b = this.rules.balance;
+    const upkeep = s.units.filter((u) => u.owner === me.id)
+      .reduce((sum, u) => sum + (this.rules.units.find((x) => x.type === u.type)?.upkeep ?? 0), 0);
+    const tips: string[] = [];
+    if (s.turn <= (b.peaceTurns ?? 5)) tips.push(t('tip.peace', { n: (b.peaceTurns ?? 5) + 1 }));
+    if ((me.food ?? 0) < 20) tips.push(t('tip.hungry'));
+    if (me.mood === 'SAD') tips.push(t('tip.sad'));
+    if ((me.gold ?? 0) >= 150) tips.push(t('tip.rich'));
+    if (upkeep >= 6) tips.push(t('tip.upkeep', { n: upkeep }));
+    tips.push(t('tip.default'), t('tip.joke1'), t('tip.joke2'));
+    this.tipNo = (this.tipNo + 1) % tips.length;
+    const close = () => pop.remove();
+    const pop = h('div', { class: 'grosik-pop', role: 'status' },
+      h('b', {}, `${t('tip.name')}: `), tips[this.tipNo],
+      h('button', { class: 'x', 'aria-label': t('tip.close'), onclick: close }, '×'));
+    face.after(pop);
+    window.setTimeout(close, 9000);
   }
 
   /** The four kinds of move as big buttons; the one Grosik would pick has a star. */
@@ -1331,15 +1373,3 @@ function moodFace(mood: string): SVGSVGElement {
   return svg;
 }
 
-function coinFace(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', '40');
-  svg.setAttribute('height', '40');
-  svg.setAttribute('viewBox', '0 0 10 10');
-  svg.setAttribute('shape-rendering', 'crispEdges');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = '<rect x="2" y="1" width="6" height="8" fill="#f2b134"/><rect x="1" y="2" width="8" height="6" fill="#f2b134"/>'
-    + '<rect x="3" y="3" width="1" height="1" fill="#2b1d0e"/><rect x="6" y="3" width="1" height="1" fill="#2b1d0e"/>'
-    + '<rect x="3" y="6" width="4" height="1" fill="#2b1d0e"/><rect x="2" y="2" width="1" height="1" fill="#ffe7a6"/>';
-  return svg;
-}

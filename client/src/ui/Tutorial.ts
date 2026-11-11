@@ -1,5 +1,6 @@
 import { h } from '../dom';
 import { t } from '../i18n';
+import { grosikSvg, type GrosikMood } from './grosik';
 
 /**
  * A short guided tour of the game screen: each step lights up one part of the screen and says what the child
@@ -10,11 +11,13 @@ interface Step {
   /** What to light up; no target = a card in the middle of the screen. */
   target?: string;
   key: string;
+  /** Grosik tells every step; this is his face while he says it */
+  mood?: GrosikMood;
 }
 
 /** The full tour of the screen, opened with the "?" button. */
 export const TOUR: Step[] = [
-  { key: 'tut.welcome' },
+  { key: 'tut.welcome', mood: 'happy' },
   { target: '.map-scroll', key: 'tut.map' },
   { target: '.map-scroll', key: 'tut.army' },
   { target: '.stats', key: 'tut.stats' },
@@ -22,7 +25,7 @@ export const TOUR: Step[] = [
   { target: '.chips', key: 'tut.kingdoms' },
   { target: '.phases', key: 'tut.phases' },
   { target: '.ready-box', key: 'tut.ready' },
-  { key: 'tut.end' },
+  { key: 'tut.end', mood: 'wink' },
 ];
 
 /**
@@ -30,9 +33,9 @@ export const TOUR: Step[] = [
  * Everything else is learnt by doing, one step at a time, with Grosik pointing at the next thing to click.
  */
 export const INTRO: Step[] = [
-  { key: 'intro.story' },
-  { target: '.goal', key: 'intro.goal' },
-  { target: '.quest', key: 'intro.quest' },
+  { key: 'intro.hello', mood: 'happy' },
+  { target: '.goal', key: 'intro.goal', mood: 'think' },
+  { target: '.quest', key: 'intro.quest', mood: 'wink' },
 ];
 
 const SEEN_KEY = 'kc.tutorialSeen';
@@ -42,6 +45,23 @@ export function tutorialSeen(): boolean {
     return localStorage.getItem(SEEN_KEY) === '1';
   } catch {
     return false;
+  }
+}
+
+/** Whether Grosik already greeted the ruler in this game (by room code). */
+export function greeted(code: string): boolean {
+  try {
+    return localStorage.getItem(`kc.greeted.${code}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markGreeted(code: string): void {
+  try {
+    localStorage.setItem(`kc.greeted.${code}`, '1');
+  } catch {
+    /* private mode */
   }
 }
 
@@ -65,7 +85,7 @@ export class Tutorial {
     if (e.key === 'ArrowLeft') this.go(-1);
   };
 
-  /** @param params filled into the texts: kingdom, peace (first turn of war), castles, gold, turns */
+  /** @param params filled into the texts: kingdom, peace (first turn of war), castles, gold, turns, name, title */
   constructor(
     private readonly params: Record<string, unknown>,
     private readonly onClose: () => void = () => undefined,
@@ -106,7 +126,9 @@ export class Tutorial {
       h('div', { class: 'tut-head' },
         h('span', { class: 'tut-count' }, t('tut.count', { n: this.step + 1, all: this.steps.length })),
         last ? null : h('button', { class: 'btn small', onclick: () => this.close() }, t('tut.skip'))),
-      h('p', { class: 'tut-text' }, t(s.key, this.params)),
+      h('div', { class: 'tut-speech' },
+        h('div', { class: 'tut-grosik' }, grosikSvg(s.mood ?? 'talk', 64)),
+        h('p', { class: 'tut-text bubble-left' }, t(s.key, this.params))),
       h('div', { class: 'tut-buttons' },
         this.step > 0 ? h('button', { class: 'btn', onclick: () => this.go(-1) }, t('tut.back')) : h('span'),
         next));
