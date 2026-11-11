@@ -37,7 +37,7 @@ public class RoomController {
         this.rooms = rooms;
     }
 
-    public record JoinRequest(String name) {
+    public record JoinRequest(String name, String realm, Integer avatar) {
     }
 
     public record ReadyRequest(boolean ready) {
@@ -59,7 +59,7 @@ public class RoomController {
 
     @PostMapping("/{code}/join")
     public Views.Joined join(@PathVariable String code, @RequestBody JoinRequest req) {
-        Player p = rooms.join(code, req.name());
+        Player p = rooms.join(code, req.name(), req.realm(), req.avatar() == null ? 0 : req.avatar());
         return new Views.Joined(p.token(), p.seat(), Room.kingdomOfSeat(p.seat()));
     }
 

@@ -4,6 +4,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.Test;
 import pl.kingscastles.engine.ai.ComputerKing;
+import pl.kingscastles.engine.model.GameState;
+import pl.kingscastles.engine.model.Pos;
+import pl.kingscastles.engine.model.Territory;
+import pl.kingscastles.engine.order.Order;
 import pl.kingscastles.engine.model.Enums.Controller;
 import pl.kingscastles.engine.model.Kingdom;
 import pl.kingscastles.engine.model.Settlement;
@@ -43,11 +47,44 @@ class ComputerKingTest {
             g.endTurn();
         }
         assertTrue(fox.autopilot);
-        long foxBuildings = g.state().settlementsOf("fox").stream().mapToLong(st -> st.buildings.size()).sum();
+        long foxBuildings = g.state().settlementsOf("fox").stream().mapToLong(st -> st.buildings.size()).sum()
+                + improvements(g.state(), "fox");
         assertTrue(foxBuildings > 0, "the computer looked after the absent child's kingdom");
 
         g.markPresent("fox");
         g.endTurn();
         assertFalse(fox.autopilot);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Controller.class, names = {"AI_BEGINNER", "AI_ADVANCED", "AI_PRO"})
+    void aComputerKingMakesOneMoveATurnLikeTheChildren(Controller level) {
+        Game g = Game.create(new Game.Setup(11, 30, List.of(new Game.Seat("Ania", Controller.HUMAN)), level, new Balance()));
+        for (int t = 0; t < 30 && !g.state().finished; t++) {
+            for (Kingdom k : g.state().kingdoms.values()) {
+                if (!k.isHuman()) {
+                    var orders = ComputerKing.orders(g.state(), k.id, k.controller).stream()
+                            .filter(o -> o.category() != Order.Category.ANSWER).toList();
+                    long moves = orders.stream().filter(o -> !o.armyStep()).count();
+                    long kinds = orders.stream().map(Order::category).distinct().count();
+                    assertTrue(moves <= 1 && kinds <= 1, k.id + " gave " + orders + " in turn " + g.state().turn);
+                }
+            }
+            g.endTurn();
+        }
+    }
+
+    private static long improvements(GameState s, String kingdom) {
+        Territory land = Territory.of(s);
+        long n = 0;
+        for (int y = 0; y < s.map.height; y++) {
+            for (int x = 0; x < s.map.width; x++) {
+                Pos p = new Pos(x, y);
+                if (s.map.tile(p).improvement != null && land.owns(kingdom, p)) {
+                    n++;
+                }
+            }
+        }
+        return n;
     }
 }

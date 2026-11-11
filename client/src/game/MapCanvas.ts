@@ -192,7 +192,7 @@ export class MapCanvas {
       ctx.fillStyle = PALETTE.gold;
       ctx.fillRect(px, py, f * 0.3, f * 0.3);
       ctx.fillStyle = PALETTE.ink;
-      ctx.font = `700 ${Math.round(f * 0.24)}px 'Pixelify Sans', monospace`;
+      ctx.font = `700 ${Math.round(f * 0.24)}px Nunito, 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('+', px + f * 0.15, py + f * 0.16);

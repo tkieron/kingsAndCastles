@@ -3,28 +3,30 @@ import { append, h, word } from '../dom';
 import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
 import {
-  buildOptions, buildingCost, goldCost, improvementAt, key, neighbours, payback, reachable, samePos,
-  terrainAt, territory, unitRule,
+  buildOptions, buildingCost, distance, goldCost, improvementAt, key, nearestVillageSpot, neighbours, payback, reachable, samePos,
+  terrainAt, territory, unitRule, villageSpot,
 } from '../game/rules';
-import { advise, current, type Step } from '../game/advisor';
+import { advise, armyStep, kindOf, KINDS, moveOf, saving, type Kind, type Step } from '../game/advisor';
 import { inkOn } from '../game/sprites';
-import { INTRO, TOUR, Tutorial, tutorialSeen } from './Tutorial';
-import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season } from '../game/text';
+import { greeted, INTRO, markGreeted, TOUR, Tutorial, tutorialSeen } from './Tutorial';
+import { grosikSvg } from './grosik';
+import { avatarSvg, avatarWho } from '../game/avatars';
+import { clock, eventText, kingdomName, ledgerText, orderText, placeName, playerLabel, season, setRealms } from '../game/text';
 import type {
-  BuildingType, GameState, KingdomView, Order, Pos, Problem, Rules, SettlementView, TaxRate, TreatyType, UnitType, UnitView,
+  BuildingType, ChronicleEvent, GameState, KingdomView, Order, Pos, ProposalView, Problem, Rules, SettlementView, TaxRate, TreatyType,
+  UnitType, UnitView,
 } from '../types';
 
 
-type Tab = 'orders' | 'ledger' | 'diplomacy' | 'market' | 'chronicle';
+type Tab = 'move' | 'ledger' | 'chronicle';
 type Selection = { kind: 'unit'; id: number } | { kind: 'settlement'; id: number } | { kind: 'tile'; pos: Pos } | null;
 
-const TABS: { id: Tab; word: Key; from: number }[] = [
-  { id: 'orders', word: 'w.orders', from: 1 },
-  { id: 'ledger', word: 'w.ledger', from: 1 },
-  { id: 'diplomacy', word: 'w.diplomacy', from: 3 },
-  { id: 'market', word: 'w.market', from: 3 },
-  { id: 'chronicle', word: 'w.chronicle', from: 1 },
+const TABS: { id: Tab; word: Key }[] = [
+  { id: 'move', word: 'w.yourMove' },
+  { id: 'ledger', word: 'w.ledger' },
+  { id: 'chronicle', word: 'w.chronicle' },
 ];
+const KIND_ICON: Record<Kind, string> = { ARMY: '⚔️', BUILD: '🏰', ECONOMY: '💰', DIPLOMACY: '🤝' };
 const TREATIES: TreatyType[] = ['PACT', 'TRADE', 'ALLIANCE'];
 const TAXES: TaxRate[] = ['LOW', 'MEDIUM', 'HIGH'];
 
@@ -42,14 +44,20 @@ export class GameScreen {
   private saved = true;
   private online = true;
   private host = false;
-  private tab: Tab = 'orders';
+  private tab: Tab = 'move';
+  /** The kind of move the child picked for this turn (one turn, one move). */
+  private kind?: Kind;
+  /** The start of a turn: treaty offers and broken treaties are answered first. */
+  private intro?: HTMLElement;
+  private introTurn = 0;
+  private tipNo = -1;
   private selection: Selection = null;
   private toast = '';
   private timeEl?: HTMLElement;
   private barEl?: HTMLElement;
   private ticker: number;
   private tutorial?: Tutorial;
-  /** Grosik's steps for this turn; the first one not done is lit up on the map and in the panel. */
+  /** Grosik's ideas for this turn's move, most useful first. */
   private steps: Step[] = [];
   private readonly quest = h('section', { class: 'quest', 'aria-live': 'polite' });
   /** The choices for what the child clicked, right next to it on the map (a sheet from the bottom on a phone). */
@@ -57,7 +65,7 @@ export class GameScreen {
   private readonly mapWrap = h('div', { class: 'map-wrap' });
   private summary?: HTMLElement;
   /** Tabs the child has opened, so a tab that appears later can say "New!" until then. */
-  private readonly seenTabs = new Set<Tab>(['orders', 'ledger', 'chronicle']);
+  private readonly seenTabs = new Set<Tab>(['move', 'ledger', 'chronicle']);
   private blink = false;
 
   constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void) {
@@ -76,7 +84,7 @@ export class GameScreen {
   }
 
   private readonly onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && this.selection && !this.summary && !this.tutorial) this.closeSheet();
+    if (e.key === 'Escape' && this.selection && !this.summary && !this.tutorial && !this.intro) this.closeSheet();
   };
 
   destroy(): void {
@@ -84,6 +92,7 @@ export class GameScreen {
     window.removeEventListener('keydown', this.onKey);
     this.tutorial?.close();
     this.summary?.remove();
+    this.intro?.remove();
   }
 
   /**
@@ -100,8 +109,11 @@ export class GameScreen {
       castles: b.militaryWinKingdoms ?? 4,
       gold: b.economicWinGold ?? 300,
       turns: this.state?.maxTurns ?? 20,
+      name: me.playerName ?? '',
+      title: t(avatarWho(me.avatar) === 'queen' ? 'intro.queen' : 'intro.king'),
     }, () => {
       this.tutorial = undefined;
+      this.showIntro();
     }, full ? TOUR : INTRO);
   }
 
@@ -120,22 +132,32 @@ export class GameScreen {
         const old = was ? { gold: was.gold ?? 0, food: was.food ?? 0 } : undefined;
         this.host = !!m.host;
         this.state = m.state;
+        setRealms(m.state.kingdoms);
         if (before === undefined || m.state.turn !== before) {
           this.draft = [...m.state.myOrders];
+          const move = moveOf(this.draft);
+          this.kind = move ? kindOf(move) as Kind : undefined;
           this.problems = [];
           this.saved = true;
           if (before !== undefined) {
-            // a new turn: a short summary card instead of a long Chronicle, then Grosik's next step
-            this.tab = 'orders';
+            // a new turn: a short summary card, then the answers to other kings, then the choice of a move
+            this.tab = 'move';
             this.selection = null;
+            this.intro?.remove();
+            this.intro = undefined;
             this.backToMap();
             if (old && this.me()) this.showSummary(old);
           }
         }
         if (before === undefined && this.me()) this.centreOnCastle();
         this.render();
-        if (before === undefined && this.me() && !m.state.finished && !tutorialSeen()) {
+        // Grosik greets the ruler at the start of every new game (and the first time ever, whenever they come in)
+        const greet = m.state.turn === 1 ? !greeted(m.state.code) : !tutorialSeen();
+        if (before === undefined && this.me() && !m.state.finished && greet) {
+          markGreeted(m.state.code);
           window.setTimeout(() => this.showTutorial(false), 300);
+        } else if (!this.summary && !this.tutorial) {
+          this.showIntro();
         }
         return;
       }
@@ -191,10 +213,21 @@ export class GameScreen {
     return out;
   }
 
-  /** Replaces the orders that match `same` with `order` (or just removes them) and sends the list. */
+  /**
+   * Replaces the orders that match `same` with `order` (or just removes them) and sends the list.
+   * One turn is one move: a new move takes the place of the old one. Answers to offers stay.
+   */
   private setOrder(same: (o: Order) => boolean, order?: Order): void {
     if (this.amReady()) return;
     this.draft = this.draft.filter((o) => !same(o));
+    if (order && kindOf(order) !== 'ANSWER') {
+      // a move of another kind replaces everything; within an Army move every army may walk or attack,
+      // but training an army or founding a village is the one counted move
+      const kind = kindOf(order);
+      this.draft = this.draft.filter((o) => kindOf(o) === 'ANSWER'
+        || (kindOf(o) === kind && (armyStep(o) || armyStep(order))));
+      this.kind = kind as Kind;
+    }
     if (order) this.draft.push(order);
     // an order was given for the clicked thing: close its choices, so Grosik's next step is what the child sees
     if (order && CLOSES.has(order.order)) this.selection = null;
@@ -303,6 +336,37 @@ export class GameScreen {
     return (this.state?.kingdoms.filter((k) => k.controller === 'HUMAN' && !k.autopilot).length ?? 0) <= 1;
   }
 
+  /** Grosik's idea for the kind of move the child picked, while the move is not made yet. */
+  private idea(): Step | undefined {
+    if (!this.kind || this.amReady()) return undefined;
+    const move = moveOf(this.draft);
+    if (!move) return this.steps.find((x) => x.move === this.kind);
+    if (this.kind !== 'ARMY') return undefined;
+    // an Army move: the next army without orders
+    const counted = this.draft.some((o) => kindOf(o) === 'ARMY' && !armyStep(o));
+    return this.steps.find((x) => x.move === 'ARMY' && x.target.kind === 'unit'
+      && !(counted && x.id.startsWith('found-'))
+      && !this.draft.some((o) => 'unitId' in o && x.target.kind === 'unit' && o.unitId === x.target.id));
+  }
+
+  /**
+   * Picks the kind of move for this turn (army, buildings, economy, diplomacy). A move of another kind
+   * already chosen is taken back, because one turn is one move.
+   */
+  private chooseKind(k: Kind | undefined): void {
+    if (this.amReady()) return;
+    const move = moveOf(this.draft);
+    this.kind = k;
+    this.tab = 'move';
+    if (move && kindOf(move) !== k) {
+      this.draft = this.draft.filter((o) => o !== move);
+      this.sync();
+    } else {
+      this.render();
+    }
+    if (k === 'ECONOMY' || k === 'DIPLOMACY') this.bringIntoView(this.panel.querySelector<HTMLElement>('.tab-body'));
+  }
+
   /** Where Grosik's current step points on the map. */
   private hintPos(step?: Step): Pos | undefined {
     const s = this.state!;
@@ -324,14 +388,12 @@ export class GameScreen {
     if (tg.kind === 'settlement') this.selection = { kind: 'settlement', id: tg.id };
     if (tg.kind === 'tile') this.selection = { kind: 'tile', pos: tg.pos };
     if (tg.kind === 'unit') this.selection = { kind: 'unit', id: tg.id };
-    if (tg.kind === 'tab') {
-      this.tab = tg.tab;
-      this.seenTabs.add(this.tab);
-    }
+    this.kind = step.move;
+    this.tab = 'move';
     this.render();
     const at = this.hintPos(step) ?? (tg.kind === 'unit' ? this.state!.units.find((u) => u.id === tg.id)?.pos : undefined);
     if (at) this.centreOn(at);
-    this.bringIntoView(tg.kind === 'ready' || tg.kind === 'tab' ? this.panel.querySelector<HTMLElement>(tg.kind === 'ready' ? '.btn-ready' : '.tab-body') : this.mapBox);
+    this.bringIntoView(tg.kind === 'panel' ? this.panel.querySelector<HTMLElement>('.tab-body') : this.mapBox);
   }
 
   /** On a phone the page scrolls: brings the map (with its sheet) or a part of the panel into view. */
@@ -369,7 +431,7 @@ export class GameScreen {
     const s = this.state;
     if (!s) return;
     const sel = this.selection;
-    if (sel?.kind === 'unit' && !this.amReady()) {
+    if (sel?.kind === 'unit' && !this.amReady() && this.kind === 'ARMY') {
       const u = s.units.find((x) => x.id === sel.id);
       if (u && u.owner === s.me) {
         const rule = unitRule(this.rules, u.type);
@@ -407,7 +469,7 @@ export class GameScreen {
   // ------------------------------------------------------------------ drawing
 
   private render(): void {
-    this.steps = this.state && this.me() ? advise(this.state, this.rules, this.draft, this.amReady()) : [];
+    this.steps = this.state && this.me() ? advise(this.state, this.rules) : [];
     this.renderHeader();
     this.renderMap();
     this.renderPanel();
@@ -416,7 +478,7 @@ export class GameScreen {
   private tick(): void {
     const s = this.state;
     this.blink = !this.blink;
-    if (s && !this.amReady() && current(this.steps)) this.renderMap();
+    if (s && this.idea()) this.renderMap();
     if (!s || !this.timeEl) return;
     if (s.turnEndsAt) {
       const left = s.turnEndsAt - Date.now();
@@ -450,7 +512,9 @@ export class GameScreen {
           class: `chip${k.id === s.me ? ' mine' : ''}`,
           title: `${kingdomName(k.id)} – ${playerLabel(k)}`,
         },
-        h('div', { class: 'badge', style: `background:${k.color};color:${inkOn(k.color)}` }, kingdomName(k.id).charAt(0)),
+        k.controller === 'HUMAN' && k.avatar !== undefined
+          ? h('div', { class: 'chip-avatar', style: `border-color:${k.color}` }, avatarSvg(k.avatar, 24))
+          : h('div', { class: 'badge', style: `background:${k.color};color:${inkOn(k.color)}` }, kingdomName(k.id).charAt(0)),
         h('div', { class: 'chip-text' },
           h('b', {}, kingdomName(k.id)),
           h('span', {}, `${k.prestige} · `, h('i', { class: ready ? 'good' : '' }, state))));
@@ -483,7 +547,7 @@ export class GameScreen {
       const u = s.units.find((x) => x.id === sel.id);
       if (u) {
         overlay.selected = u.pos;
-        if (u.owner === s.me && !this.amReady()) {
+        if (u.owner === s.me && !this.amReady() && this.kind === 'ARMY') {
           const paths = reachable(s, u, unitRule(this.rules, u.type).move);
           overlay.reach = new Set([...paths.keys()].filter((k) => {
             const [x, y] = k.split(',').map(Number);
@@ -497,7 +561,7 @@ export class GameScreen {
     } else if (sel?.kind === 'tile') {
       overlay.selected = sel.pos;
     }
-    overlay.hint = this.amReady() ? undefined : this.hintPos(current(this.steps));
+    overlay.hint = this.hintPos(this.idea());
     overlay.blink = this.blink;
     // the hinted field, also for automated play-throughs of the guided turns
     if (overlay.hint) this.map.canvas.dataset.hint = `${overlay.hint.x},${overlay.hint.y}`;
@@ -533,7 +597,7 @@ export class GameScreen {
     const free = (me.gold ?? 0) - this.reserved();
     this.panel.append(
       h('div', { class: 'me' },
-        h('div', { class: 'badge big', style: `background:${me.color};color:${inkOn(me.color)}` }, kingdomName(me.id).charAt(0)),
+        h('div', { class: 'me-avatar', style: `border-color:${me.color}` }, avatarSvg(me.avatar, 52)),
         h('div', { class: 'col' },
           h('span', { class: 'title' }, kingdomName(me.id)),
           h('span', { class: 'muted small' }, `${me.playerName ?? ''} · `, word('w.prestige'), ` ${me.prestige} · ${villages} `, word('w.village'),
@@ -547,7 +611,7 @@ export class GameScreen {
           h('span', { class: 'muted small' }, word(`tax.${me.tax ?? 'LOW'}`)))),
       h('div', { class: 'small muted' }, h('b', { class: free < 0 ? 'bad' : 'gold' }, t('game.freeGold', { n: free }))),
       this.goal(),
-      h('nav', { class: 'tabs', 'aria-label': 'Panel' }, ...TABS.filter((tb) => s.turn >= tb.from).map((tb) =>
+      h('nav', { class: 'tabs', 'aria-label': 'Panel' }, ...TABS.map((tb) =>
         h('button', {
           class: `tab${this.tab === tb.id ? ' on' : ''}`,
           onclick: () => {
@@ -559,10 +623,8 @@ export class GameScreen {
     );
     const body = h('section', { class: 'tab-body' });
     switch (this.tab) {
-      case 'orders': body.append(h('p', { class: 'muted small' }, t('game.clickMap'))); break;
+      case 'move': body.append(this.moveView()); break;
       case 'ledger': body.append(this.ledgerView()); break;
-      case 'diplomacy': body.append(this.diplomacyView()); break;
-      case 'market': body.append(this.marketView()); break;
       case 'chronicle': body.append(this.chronicleView()); break;
     }
     this.panel.append(body, this.ordersList(), this.readyBox());
@@ -596,7 +658,7 @@ export class GameScreen {
       parchment.append(h('p', {}, t('sel.notYours', { name: kingdomName(st.owner) })), this.nothingHere());
       return parchment;
     }
-    const step = current(this.steps);
+    const step = this.idea();
     const army = this.unitAt(st.pos);
     if (army && army.owner === me.id) {
       const wanted = step?.target.kind === 'unit' && step.target.id === army.id;
@@ -615,7 +677,15 @@ export class GameScreen {
     if (st.castle && me.palacePaid > 0 && !me.palaceDone) {
       parchment.append(h('div', { class: 'small' }, t('sel.palace', { paid: me.palacePaid, all: this.rules.balance.palaceInstallments })));
     }
+    if (this.kind !== 'BUILD' && this.kind !== 'ARMY') {
+      parchment.append(this.needKind(['BUILD', 'ARMY']));
+      return parchment;
+    }
     const locked = this.amReady();
+    if (this.kind === 'ARMY') {
+      parchment.append(this.recruitOptions(st, free, locked), this.needKind(['BUILD']));
+      return parchment;
+    }
     const chosenBuild = this.draft.find((o) => o.order === 'build' && o.settlementId === st.id);
     parchment.append(h('div', { class: 'label dark' }, t('sel.build')));
     const builds = h('div', { class: 'grid2' });
@@ -640,8 +710,13 @@ export class GameScreen {
       h('div', { class: 'opt-sub' }, short > 0 ? t('sel.short', { n: short }) : pb ? t('sel.payback', { n: pb }) : t(`bd.${b}`)),
       glow ? h('div', { class: 'opt-sub star' }, `★ ${t('sel.suggested')}`) : null));
     }
-    parchment.append(builds);
+    parchment.append(builds, this.needKind(['ARMY']));
+    return parchment;
+  }
 
+  /** Training a new army in a castle or village: one of the Army moves. */
+  private recruitOptions(st: SettlementView, free: number, locked: boolean): HTMLElement {
+    const s = this.state!;
     const chosenUnit = this.draft.find((o) => o.order === 'recruit' && o.settlementId === st.id);
     const units = h('div', { class: 'grid2' });
     for (const u of this.rules.units) {
@@ -660,11 +735,16 @@ export class GameScreen {
       h('div', { class: 'opt-sub' }, noBarracks ? t('sel.needsBarracks') : short > 0 ? t('sel.short', { n: short })
         : `${t(`ud.${u.type}`)} · −${u.upkeep}/${t('w.turn').toLowerCase()}`)));
     }
-    // training an army is a later lesson: folded away, so the buildings stay the main choice
-    const recruitOpen = !!chosenUnit || s.turn > (this.rules.balance.peaceTurns ?? 5);
-    parchment.append(h('details', { class: 'recruit', open: recruitOpen },
-      h('summary', { class: 'label dark' }, t('sel.recruit')), units));
-    return parchment;
+    return h('div', { class: 'recruit' }, h('div', { class: 'label dark' }, t('sel.recruit')), units);
+  }
+
+  /** On a thing that needs another kind of move: say so, with buttons that switch to it. */
+  private needKind(kinds: Kind[]): HTMLElement {
+    return h('div', { class: 'need-kind' },
+      h('p', { class: 'small' }, this.kind ? t('turn.otherKind', { kind: t(`move.${this.kind}`) }) : t('turn.pickFirst')),
+      h('div', { class: 'row wrap' }, ...kinds.map((k) => h('button', {
+        class: 'btn small', disabled: this.amReady(), onclick: () => this.chooseKind(k),
+      }, `${KIND_ICON[k]} ${t(`move.${k}`)}`))));
   }
 
   private unitView(u: UnitView): HTMLElement {
@@ -678,26 +758,62 @@ export class GameScreen {
       box.append(this.nothingHere());
       return box;
     }
-    const step = current(this.steps);
-    if (step?.target.kind === 'unit' && step.target.id === u.id) box.append(h('p', { class: 'suggested-text' }, `★ ${t('adv.clickDest')}`));
+    if (u.type === 'SETTLER') box.append(this.settlerView(u));
+    if (this.kind !== 'ARMY') {
+      if (u.type !== 'SETTLER') box.append(this.needKind(['ARMY']));
+      return box;
+    }
+    const step = this.idea();
+    if (step?.target.kind === 'unit' && step.target.id === u.id && !samePos(step.target.dest, u.pos)) {
+      box.append(h('p', { class: 'suggested-text' }, `★ ${t('adv.clickDest')}`));
+    }
     box.append(h('p', { class: 'small' }, t('sel.moveHint')));
     if (u.type !== 'SETTLER') box.append(h('p', { class: 'small' }, t('sel.attackHint')));
     const planned = this.draft.some((o) => (o.order === 'move' || o.order === 'attack') && o.unitId === u.id);
     if (planned) {
       box.append(h('button', {
         class: 'btn', disabled: this.amReady(),
-        onclick: () => this.setOrder((o) => (o.order === 'move' || o.order === 'attack' || o.order === 'foundVillage') && o.unitId === u.id),
+        onclick: () => this.setOrder((o) => (o.order === 'move' || o.order === 'attack') && o.unitId === u.id),
       }, t('sel.cancelMove')));
     }
-    if (u.type === 'SETTLER') {
+    return box;
+  }
+
+  /**
+   * A settler, made easy: one big "Build a village here" button when the field is good, otherwise why not
+   * and a button that leads it to the nearest good field (Grosik marks it on the map). Works whatever kind
+   * of move was picked: founding a village is an Army move, so it switches to Army.
+   */
+  private settlerView(u: UnitView): HTMLElement {
+    const s = this.state!;
+    const box = h('div', { class: 'settler' });
+    const locked = this.amReady();
+    const founding = this.draft.find((o) => o.order === 'foundVillage' && o.unitId === u.id);
+    if (founding?.order === 'foundVillage') {
+      box.append(h('p', { class: 'suggested-text' }, `✔ ${t('settler.planned', { name: founding.name })}`),
+        h('button', { class: 'btn', disabled: locked, onclick: () => this.setOrder((o) => o === founding) }, t('settler.cancel')));
+      return box;
+    }
+    const spot = villageSpot(s, this.rules, u.pos);
+    if (spot === 'ok') {
       const own = s.settlements.filter((x) => x.owner === s.me).length;
-      const input = h('input', { class: 'input', maxlength: 20, value: `${kingdomName(s.me)} ${own + 1}`, 'aria-label': t('sel.villageName') });
-      box.append(h('div', { class: 'row' }, input,
-        h('button', {
-          class: 'btn', disabled: this.amReady(),
-          onclick: () => this.setOrder((o) => o.order === 'foundVillage' && o.unitId === u.id,
-            { order: 'foundVillage', unitId: u.id, name: input.value.trim() || input.placeholder }),
-        }, t('sel.foundVillage'))));
+      const name = `${kingdomName(s.me)} ${own + 1}`;
+      box.append(h('button', {
+        class: 'btn-ready found-here', disabled: locked,
+        onclick: () => this.setOrder((o) => o.order === 'foundVillage' && o.unitId === u.id, { order: 'foundVillage', unitId: u.id, name }),
+      }, `🏠 ${t('sel.foundVillage')}`),
+      h('p', { class: 'small' }, t('settler.ok', { name })));
+      return box;
+    }
+    box.append(h('p', { class: 'small bad' }, spot === 'tooClose'
+      ? t('settler.tooClose', { n: this.rules.balance.settlerMinDistance ?? 3 })
+      : t('settler.badGround')));
+    const target = nearestVillageSpot(s, this.rules, u.pos);
+    if (target) {
+      box.append(h('p', { class: 'small' }, t('settler.nearest', { n: distance(u.pos, target) })));
+      if (this.kind !== 'ARMY') {
+        box.append(h('button', { class: 'btn-ready small-ready', disabled: locked, onclick: () => this.chooseKind('ARMY') }, `★ ${t('settler.lead')}`));
+      }
     }
     return box;
   }
@@ -709,8 +825,9 @@ export class GameScreen {
       h('div', { class: 'title' }, t(`terrain.${tc}`)),
       h('p', { class: 'small' }, t(`terrainHint.${tc}`)));
     const owner = territory(s)[p.y][p.x];
-    const step = current(this.steps);
+    const step = this.idea();
     const free = (this.me()?.gold ?? 0) - this.reserved();
+    let asked = false;
     if (s.map.ruins.some((r) => samePos(r, p))) box.append(h('p', {}, t('sel.ruins')));
     if (owner && owner !== s.me) box.append(h('p', {}, t('sel.notYours', { name: kingdomName(owner) })));
     if (owner === s.me && !improvementAt(s.map, p)) {
@@ -727,10 +844,15 @@ export class GameScreen {
         h('div', { class: 'opt-sub' }, short > 0 ? t('sel.short', { n: short }) : t(`bd.${b}`)),
         glow ? h('div', { class: 'opt-sub star' }, `★ ${t('sel.suggested')}`) : null));
       };
-      if (tc === 'H') offer('GOLD_MINE', 'sel.mine');
-      if (tc === 'R') offer('BRIDGE', 'sel.bridge');
+      if ((tc === 'H' || tc === 'R') && this.kind !== 'BUILD') {
+        box.append(this.needKind(['BUILD']));
+        asked = true;
+      } else {
+        if (tc === 'H') offer('GOLD_MINE', 'sel.mine');
+        if (tc === 'R') offer('BRIDGE', 'sel.bridge');
+      }
     }
-    if (!box.querySelector('.option')) box.append(this.nothingHere());
+    if (!asked && !box.querySelector('.option')) box.append(this.nothingHere());
     return box;
   }
 
@@ -802,13 +924,18 @@ export class GameScreen {
     if (offers.length) {
       box.append(h('div', { class: 'label dark' }, t('dip.offers')));
       for (const p of offers) {
-        const accepted = this.draft.some((o) => o.order === 'acceptTreaty' && o.from === p.from && o.type === p.type);
+        const answer = (o: Order) => (o.order === 'acceptTreaty' || o.order === 'rejectTreaty') && o.from === p.from && o.type === p.type;
+        const given = this.draft.find(answer)?.order;
         box.append(h('div', { class: 'row spread' }, `${kingdomName(p.from)}: `, word(`t.${p.type}`),
-          h('button', {
-            class: `btn small${accepted ? ' chosen' : ''}`, disabled: locked,
-            onclick: () => this.setOrder((o) => o.order === 'acceptTreaty' && o.from === p.from && o.type === p.type,
-              accepted ? undefined : { order: 'acceptTreaty', from: p.from, type: p.type }),
-          }, t('dip.accept'))));
+          h('span', { class: 'row' },
+            h('button', {
+              class: `btn small${given === 'acceptTreaty' ? ' chosen' : ''}`, disabled: locked,
+              onclick: () => this.setOrder(answer, { order: 'acceptTreaty', from: p.from, type: p.type }),
+            }, t('dip.accept')),
+            h('button', {
+              class: `btn small${given === 'rejectTreaty' ? ' chosen' : ''}`, disabled: locked,
+              onclick: () => this.setOrder(answer, { order: 'rejectTreaty', from: p.from, type: p.type }),
+            }, t('dip.reject')))));
       }
     }
     if (me.overlord) {
@@ -824,7 +951,9 @@ export class GameScreen {
       const mine = s.treaties.filter((tr) => (tr.a === me.id && tr.b === k.id) || (tr.b === me.id && tr.a === k.id));
       const row = h('div', { class: 'kingdom-row' },
         h('div', { class: 'row' },
-          h('span', { class: 'dot', style: `background:${k.color}` }),
+          k.controller === 'HUMAN' && k.avatar !== undefined
+            ? h('span', { class: 'chip-avatar', style: `border-color:${k.color}` }, avatarSvg(k.avatar, 22))
+            : h('span', { class: 'dot', style: `background:${k.color}` }),
           h('b', {}, kingdomName(k.id)),
           h('span', { class: 'small' }, k.playerName ? ` ${k.playerName}` : ` ${t(`ctl.${k.controller}`)}`),
           k.overlord === me.id ? h('span', { class: 'small' }, ' · ', word('w.vassal')) : null,
@@ -871,9 +1000,9 @@ export class GameScreen {
   private ordersList(): HTMLElement {
     const s = this.state!;
     const list = h('section', { class: 'orders' },
-      h('div', { class: 'row spread' }, h('span', { class: 'label' }, t('game.yourOrders')),
+      h('div', { class: 'row spread' }, h('span', { class: 'label' }, t('game.yourMove')),
         h('span', { class: `small ${this.saved ? 'good' : 'muted'}` }, this.saved && this.draft.length ? `✔ ${t('game.saved')}` : '')));
-    if (!this.draft.length) list.append(h('p', { class: 'muted small' }, t('game.noOrders')));
+    if (!moveOf(this.draft)) list.append(h('p', { class: 'muted small' }, t('game.noMove')));
     this.draft.forEach((o, i) => {
       const problem = this.problems.find((p) => p.orderIndex === i);
       const cost = goldCost(o, this.rules, s);
@@ -894,46 +1023,184 @@ export class GameScreen {
   }
 
   /**
-   * Grosik's card above the map: what to do now, why it is worth it, and a "Show me" button.
-   * Steps already done this turn stay on the card with a tick, so the child sees the turn's progress.
+   * Grosik's card above the map, which leads through the turn: pick a kind of move, make the move, end the turn.
    */
   private renderQuest(): void {
     const s = this.state;
     this.quest.replaceChildren();
     const me = this.me();
-    this.quest.hidden = !s || !me || s.finished || !this.steps.length;
-    if (this.quest.hidden) return;
-    const now = current(this.steps);
+    this.quest.hidden = !s || !me || s.finished;
+    if (this.quest.hidden || !s) return;
     const ready = this.amReady();
+    const move = moveOf(this.draft);
     const body = h('div', { class: 'quest-body' });
+    let go: HTMLElement | null = null;
     if (ready) {
       body.append(h('div', { class: 'quest-now' }, t('game.waiting')));
-    } else if (now) {
+    } else if (move) {
+      const moves = this.draft.filter((o) => kindOf(o) !== 'ANSWER');
+      const next = this.idea();
       append(body,
-        h('div', { class: 'quest-label' }, t('adv.title')),
-        h('div', { class: 'quest-now' }, now.text),
-        now.why ? h('div', { class: 'quest-why' }, now.why) : null);
+        h('div', { class: 'quest-label' }, t('w.yourMove')),
+        h('div', { class: 'quest-now' }, `✔ ${moves.length > 1
+          ? t('turn.doneMany', { n: moves.length }) : t('turn.done', { move: orderText(move, s) })}`),
+        h('div', { class: 'quest-why' }, this.kind === 'ARMY' ? t('turn.doneArmy') : t('turn.doneWhy')),
+        h('div', { class: 'row wrap' },
+          next ? h('button', { class: 'link', onclick: () => this.showStep(next) }, `★ ${next.text}`) : null,
+          h('button', { class: 'link', onclick: () => this.setOrder((o) => kindOf(o) !== 'ANSWER') }, t('turn.changeMove'))));
+      go = h('button', { class: 'btn-ready quest-go', onclick: () => this.endTurnNow() }, t('game.endTurn'));
+    } else if (!this.kind) {
+      const best = this.steps[0];
+      append(body,
+        h('div', { class: 'quest-label' }, t('turn.pickWhy')),
+        h('div', { class: 'quest-now' }, t('turn.pick')),
+        this.kindPicker(),
+        h('div', { class: 'quest-why' }, best ? `★ ${t('turn.advice', { text: best.text })}` : saving(s, this.rules) ?? ''));
+    } else {
+      const idea = this.idea();
+      append(body,
+        h('div', { class: 'quest-label' }, `${KIND_ICON[this.kind]} ${t(`move.${this.kind}`)}`),
+        h('div', { class: 'quest-now' }, idea ? `★ ${idea.text}` : t(`moveHow.${this.kind}`)),
+        idea?.why ? h('div', { class: 'quest-why' }, idea.why) : null,
+        h('button', { class: 'link', onclick: () => this.chooseKind(undefined) }, t('turn.change')));
+      if (idea) go = h('button', { class: 'btn-ready quest-go', onclick: () => this.showStep(idea) }, t('adv.show'));
     }
-    const list = h('ul', { class: 'quest-list' }, ...this.steps.filter((x) => x !== now).map((x) =>
-      h('li', { class: x.done ? 'done' : '' }, x.done && x.target.kind !== 'none' ? '✔ ' : '• ', x.text)));
-    if (list.childElementCount) body.append(list);
-    const show = now && !ready
-      ? h('button', { class: 'btn-ready quest-go', onclick: () => this.showStep(now) },
-        now.target.kind === 'ready' ? t('game.endTurn') : t('adv.show'))
-      : null;
-    if (show && now?.target.kind === 'ready') show.onclick = () => this.endTurnNow();
-    append(this.quest, h('div', { class: 'quest-face' }, coinFace()), body, show);
+    const face = h('button', {
+      class: 'quest-face', title: t('tip.click'), 'aria-label': t('tip.click'),
+      onclick: () => this.grosikTip(face),
+    }, grosikSvg(ready ? 'happy' : move ? 'wink' : this.kind ? 'talk' : 'think', 48));
+    append(this.quest, face, body, go);
+  }
+
+  /** Clicking Grosik: he pipes up with a piece of advice in a speech bubble, like an old desktop helper. */
+  private grosikTip(face: HTMLElement): void {
+    const s = this.state;
+    const me = this.me();
+    if (!s || !me) return;
+    this.quest.querySelector('.grosik-pop')?.remove();
+    const b = this.rules.balance;
+    const upkeep = s.units.filter((u) => u.owner === me.id)
+      .reduce((sum, u) => sum + (this.rules.units.find((x) => x.type === u.type)?.upkeep ?? 0), 0);
+    const tips: string[] = [];
+    if (s.turn <= (b.peaceTurns ?? 5)) tips.push(t('tip.peace', { n: (b.peaceTurns ?? 5) + 1 }));
+    if ((me.food ?? 0) < 20) tips.push(t('tip.hungry'));
+    if (me.mood === 'SAD') tips.push(t('tip.sad'));
+    if ((me.gold ?? 0) >= 150) tips.push(t('tip.rich'));
+    if (upkeep >= 6) tips.push(t('tip.upkeep', { n: upkeep }));
+    tips.push(t('tip.default'), t('tip.joke1'), t('tip.joke2'));
+    this.tipNo = (this.tipNo + 1) % tips.length;
+    const close = () => pop.remove();
+    const pop = h('div', { class: 'grosik-pop', role: 'status' },
+      h('b', {}, `${t('tip.name')}: `), tips[this.tipNo],
+      h('button', { class: 'x', 'aria-label': t('tip.close'), onclick: close }, '×'));
+    face.after(pop);
+    window.setTimeout(close, 9000);
+  }
+
+  /** The four kinds of move as big buttons; the one Grosik would pick has a star. */
+  private kindPicker(): HTMLElement {
+    const best = this.steps[0]?.move;
+    return h('div', { class: 'kinds' }, ...KINDS.map((k) => h('button', {
+      class: `kind-btn${k === best ? ' suggested' : ''}`, 'data-kind': k, disabled: this.amReady(),
+      onclick: () => this.chooseKind(k),
+    },
+    h('span', { class: 'kind-icon', 'aria-hidden': 'true' }, KIND_ICON[k]),
+    h('span', { class: 'kind-name' }, t(`move.${k}`)),
+    h('span', { class: 'kind-sub' }, t(`moveSub.${k}`)),
+    k === best ? h('span', { class: 'kind-star' }, t('turn.advised')) : null)));
+  }
+
+  /** The "Your move" tab: what to do for the chosen kind of move; economy and diplomacy are chosen right here. */
+  private moveView(): HTMLElement {
+    const k = this.kind;
+    if (!k) return h('p', { class: 'muted small' }, t('turn.pick'));
+    const box = h('div', { class: 'col gap' },
+      h('div', { class: 'row spread' },
+        h('span', { class: 'title' }, `${KIND_ICON[k]} ${t(`move.${k}`)}`),
+        h('button', { class: 'btn small', disabled: this.amReady(), onclick: () => this.chooseKind(undefined) }, t('turn.change'))));
+    if (k === 'ECONOMY') box.append(this.marketView());
+    else if (k === 'DIPLOMACY') box.append(this.diplomacyView());
+    else box.append(h('p', { class: 'muted small' }, t(`moveHow.${k}`)));
+    return box;
   }
 
   /** For a field or a stranger's place: there is nothing to do here, and a way to what can be done. */
   private nothingHere(): HTMLElement {
-    const now = current(this.steps);
+    const idea = this.idea();
+    const move = moveOf(this.draft);
     return h('div', { class: 'nothing' },
       h('p', { class: 'small' }, `${t('sel.nothingHere')} ${t('game.clickMap')}`),
-      now && !this.amReady() ? h('button', {
+      this.amReady() ? null : h('button', {
         class: 'btn-ready small-ready',
-        onclick: () => (now.target.kind === 'ready' ? this.endTurnNow() : this.showStep(now)),
-      }, now.target.kind === 'ready' ? t('game.endTurn') : t('sel.whatNow')) : null);
+        onclick: () => {
+          if (move) this.endTurnNow();
+          else if (idea) this.showStep(idea);
+          else this.closeSheet();
+        },
+      }, move ? t('game.endTurn') : t('sel.whatNow')));
+  }
+
+  /** Offers and broken treaties for this kingdom, answered before the move. */
+  private introNews(): { offers: ProposalView[]; wars: ChronicleEvent[] } {
+    const s = this.state!;
+    const me = s.me;
+    return {
+      offers: s.proposals.filter((p) => p.to === me),
+      wars: (s.report?.events ?? []).filter((e) => e.key === 'chronicle.treatyBroken' && e.params.with === me && e.params.type !== 'TRADE'),
+    };
+  }
+
+  /**
+   * The start of a turn, when another king asked us something: an offer of a treaty to accept or decline,
+   * or news that someone broke a treaty with us (they may attack soon). Answering is free; then the child picks a move.
+   */
+  private showIntro(): void {
+    const s = this.state;
+    if (!s || !this.me() || s.finished || this.amReady() || this.intro || this.introTurn === s.turn) return;
+    const { offers, wars } = this.introNews();
+    if (!offers.length && !wars.length) return;
+    this.introTurn = s.turn;
+    const card = h('div', { class: 'tut-card middle summary intro' });
+    this.intro = h('div', { class: 'tut dim', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('intro.title') }, card);
+    const close = () => {
+      this.intro?.remove();
+      this.intro = undefined;
+      this.render();
+      this.quest.querySelector<HTMLElement>('.kind-btn')?.focus();
+    };
+    const draw = () => {
+      const answerOf = (p: ProposalView) => this.draft.find((o) =>
+        (o.order === 'acceptTreaty' || o.order === 'rejectTreaty') && o.from === p.from && o.type === p.type)?.order;
+      const answer = (p: ProposalView, yes: boolean) => {
+        this.setOrder((o) => (o.order === 'acceptTreaty' || o.order === 'rejectTreaty') && o.from === p.from && o.type === p.type,
+          { order: yes ? 'acceptTreaty' : 'rejectTreaty', from: p.from, type: p.type });
+        draw();
+      };
+      const all = offers.every((p) => answerOf(p));
+      card.replaceChildren();
+      append(card,
+        h('div', { class: 'title' }, t('intro.title')),
+        offers.length ? h('p', { class: 'small' }, t('intro.text')) : null,
+        ...wars.map((e) => h('div', { class: 'intro-item war' },
+          h('p', {}, `⚔️ ${t('intro.war', {
+            by: kingdomName(String(e.params.by)), type: t(`t.${String(e.params.type)}`), turn: Number(e.params.lastTurn) + 1,
+          })}`))),
+        ...offers.map((p) => {
+          const given = answerOf(p);
+          return h('div', { class: 'intro-item' },
+            h('p', {}, `🤝 ${t('intro.offer', { from: kingdomName(p.from), type: t(`t.${p.type}`) })}`),
+            h('div', { class: 'row wrap' },
+              h('button', { class: `option slim${given === 'acceptTreaty' ? ' chosen' : ''}`, onclick: () => answer(p, true) },
+                `${given === 'acceptTreaty' ? '✔ ' : ''}${t('intro.yes')}`),
+              h('button', { class: `option slim${given === 'rejectTreaty' ? ' chosen' : ''}`, onclick: () => answer(p, false) },
+                `${given === 'rejectTreaty' ? '✔ ' : ''}${t('intro.no')}`)));
+        }),
+        all ? null : h('p', { class: 'small muted-dark' }, t('intro.answerAll')),
+        h('button', { class: 'btn-ready', disabled: !all, onclick: close }, offers.length ? t('intro.go') : t('intro.ok')));
+    };
+    draw();
+    document.body.append(this.intro);
+    this.intro.querySelector<HTMLElement>('button')?.focus();
   }
 
   private endTurnNow(): void {
@@ -972,6 +1239,7 @@ export class GameScreen {
       this.summary = undefined;
       this.backToMap();
       window.removeEventListener('keydown', onKey);
+      this.showIntro();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Enter') close();
@@ -1014,9 +1282,9 @@ export class GameScreen {
     const box = h('div', { class: 'ready-box' });
     if (s.finished) return box;
     const solo = this.solo();
-    const now = current(this.steps);
+    const moved = !!moveOf(this.draft);
     box.append(h('button', {
-      class: `btn-ready${ready ? ' waiting' : ''}${!ready && now?.target.kind === 'ready' ? ' suggested' : ''}`,
+      class: `btn-ready${ready ? ' waiting' : ''}${!ready && moved ? ' suggested' : ''}`,
       onclick: () => this.conn.ready(!ready),
     }, ready ? t('game.notReady') : solo ? t('game.endTurn') : word('w.ready'),
     solo ? null : h('span', { class: 'small' }, ` (${t('game.readyCount', { n: readyCount, all: humans.length })})`)));
@@ -1105,15 +1373,3 @@ function moodFace(mood: string): SVGSVGElement {
   return svg;
 }
 
-function coinFace(): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', '40');
-  svg.setAttribute('height', '40');
-  svg.setAttribute('viewBox', '0 0 10 10');
-  svg.setAttribute('shape-rendering', 'crispEdges');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = '<rect x="2" y="1" width="6" height="8" fill="#f2b134"/><rect x="1" y="2" width="8" height="6" fill="#f2b134"/>'
-    + '<rect x="3" y="3" width="1" height="1" fill="#2b1d0e"/><rect x="6" y="3" width="1" height="1" fill="#2b1d0e"/>'
-    + '<rect x="3" y="6" width="4" height="1" fill="#2b1d0e"/><rect x="2" y="2" width="1" height="1" fill="#ffe7a6"/>';
-  return svg;
-}

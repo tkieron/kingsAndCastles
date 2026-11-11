@@ -31,6 +31,7 @@ public class OrderJson {
             @JsonSubTypes.Type(value = Order.BuyFreedom.class, name = "buyFreedom"),
             @JsonSubTypes.Type(value = Order.ProposeTreaty.class, name = "proposeTreaty"),
             @JsonSubTypes.Type(value = Order.AcceptTreaty.class, name = "acceptTreaty"),
+            @JsonSubTypes.Type(value = Order.RejectTreaty.class, name = "rejectTreaty"),
             @JsonSubTypes.Type(value = Order.BreakTreaty.class, name = "breakTreaty")
     })
     interface OrderMixin {

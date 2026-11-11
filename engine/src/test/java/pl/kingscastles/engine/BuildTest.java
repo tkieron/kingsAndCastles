@@ -101,4 +101,18 @@ class BuildTest {
         assertTrue(w.s.settlementAt(p(9, 6)).isPresent());
         assertEquals("Brookside", w.s.settlementAt(p(9, 6)).get().name);
     }
+
+    @Test
+    void aSettlerHearsAtOnceWhenItsFieldIsNoGoodForAVillage() {
+        TestWorld w = TestWorld.meadow();
+        w.kingdom("fox", 0);
+        w.castle("fox", 2, 2);
+        Unit near = w.unit("fox", UnitType.SETTLER, 4, 2);
+        Unit wet = w.unit("fox", UnitType.SETTLER, 9, 6);
+        Unit far = w.unit("fox", UnitType.SETTLER, 9, 2);
+        w.terrain(9, 6, Terrain.RIVER);
+        assertEquals("error.villageTooClose", OrderValidator.validate(w.s, "fox", List.of(new Order.FoundVillage(near.id, "A"))).get(0).key());
+        assertEquals("error.villageNotHere", OrderValidator.validate(w.s, "fox", List.of(new Order.FoundVillage(wet.id, "B"))).get(0).key());
+        assertTrue(OrderValidator.validate(w.s, "fox", List.of(new Order.FoundVillage(far.id, "C"))).isEmpty());
+    }
 }

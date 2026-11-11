@@ -66,6 +66,7 @@ public final class Engine {
 
     static Map<String, Object> balance(Balance b) {
         return Json.obj(
+                "actionsPerTurn", b.actionsPerTurn,
                 "startGold", b.startGold,
                 "startFood", b.startFood,
                 "startCastleFamilies", b.startCastleFamilies,
@@ -321,6 +322,7 @@ public final class Engine {
             case Order.BuyFreedom f -> Json.obj("order", "buyFreedom");
             case Order.ProposeTreaty p -> Json.obj("order", "proposeTreaty", "to", p.to(), "type", p.type());
             case Order.AcceptTreaty a -> Json.obj("order", "acceptTreaty", "from", a.from(), "type", a.type());
+            case Order.RejectTreaty r -> Json.obj("order", "rejectTreaty", "from", r.from(), "type", r.type());
             case Order.BreakTreaty b -> Json.obj("order", "breakTreaty", "with", b.with(), "type", b.type());
         };
     }
@@ -347,6 +349,7 @@ public final class Engine {
             case "buyFreedom" -> new Order.BuyFreedom();
             case "proposeTreaty" -> new Order.ProposeTreaty(str(m, "to"), TreatyType.valueOf(str(m, "type")));
             case "acceptTreaty" -> new Order.AcceptTreaty(str(m, "from"), TreatyType.valueOf(str(m, "type")));
+            case "rejectTreaty" -> new Order.RejectTreaty(str(m, "from"), TreatyType.valueOf(str(m, "type")));
             case "breakTreaty" -> new Order.BreakTreaty(str(m, "with"), TreatyType.valueOf(str(m, "type")));
             default -> throw new IllegalArgumentException("Unknown order " + kind);
         };

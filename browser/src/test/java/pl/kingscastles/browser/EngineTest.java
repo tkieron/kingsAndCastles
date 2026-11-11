@@ -45,6 +45,7 @@ class EngineTest {
                 new Order.BuyFreedom(),
                 new Order.ProposeTreaty("owl", TreatyType.PACT),
                 new Order.AcceptTreaty("owl", TreatyType.TRADE),
+                new Order.RejectTreaty("owl", TreatyType.ALLIANCE),
                 new Order.BreakTreaty("owl", TreatyType.ALLIANCE));
         assertEquals(Order.class.getPermittedSubclasses().length, all.size(), "every kind of order is tested");
         for (Order o : all) {

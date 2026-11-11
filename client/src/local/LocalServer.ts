@@ -14,7 +14,8 @@ export class LocalError extends Error {
   }
 }
 
-interface Player { token: string; name: string; seat: number }
+/** realm: the kingdom's name chosen by the child (missing: the kingdom keeps its own name); avatar: the picture, 0-9 kings, 10-19 queens. */
+interface Player { token: string; name: string; seat: number; realm?: string; avatar?: number }
 interface TurnRecord { orders: Record<string, Order[]>; present: string[] }
 interface RoomRecord {
   code: string;
@@ -30,6 +31,8 @@ type Listener = { token?: string; hostToken?: string; send: (m: ServerMessage) =
 
 const SAVE_KEY = 'kc.local.room';
 const TURN_LENGTHS = [0, 30, 60, 90, 120, 180];
+const AVATARS = 20;
+const REALM_MAX = 24;
 
 let rulesCache: Rules | null = null;
 let room: RoomRecord | null = null;
@@ -111,16 +114,25 @@ function playingKingdom(r: RoomRecord, tok?: string): string {
 function lobbyView(r: RoomRecord): Lobby {
   const seats: Seat[] = r.settings.seats.map((controller, i) => {
     const k = rules().kingdoms[i];
-    const player = r.players.find((p) => p.seat === i)?.name;
-    return { seat: i, kingdom: k.id, name: k.name, color: k.color, controller, ...(player ? { player } : {}) };
+    const p = r.players.find((x) => x.seat === i);
+    return {
+      seat: i, kingdom: k.id, name: k.name, color: k.color, controller,
+      ...(p ? { player: p.name, avatar: p.avatar ?? 0, ...(p.realm ? { realm: p.realm } : {}) } : {}),
+    };
   });
   return { code: r.code, status: r.status, settings: r.settings, seats };
 }
 
 function stateView(r: RoomRecord, me: string | null): GameState {
   const v = JSON.parse(engine.view(me)) as Omit<GameState, 'code' | 'status' | 'turnSeconds' | 'ready'>;
+  // the engine knows only the child's name: the kingdom name and picture they chose live in the room, as on the server
+  const kingdoms = v.kingdoms.map((k) => {
+    const p = r.players.find((x) => kingdomOfSeat(x.seat) === k.id);
+    return p ? { ...k, avatar: p.avatar ?? 0, ...(p.realm ? { realm: p.realm } : {}) } : k;
+  });
   return {
     ...v,
+    kingdoms,
     code: r.code,
     status: r.status,
     turnEndsAt,
@@ -213,14 +225,17 @@ export const localApi = {
     return lobbyView(requireRoom(code));
   },
 
-  async join(code: string, name: string): Promise<{ token: string; seat: number; kingdom: string }> {
+  async join(code: string, name: string, realm = '', avatar = 0): Promise<{ token: string; seat: number; kingdom: string }> {
     const r = requireRoom(code);
     const clean = (name ?? '').trim();
     if (!clean || clean.length > 20) throw new LocalError('error.badName');
+    const realmName = (realm ?? '').trim();
+    if (realmName.length > REALM_MAX) throw new LocalError('error.badRealm');
+    if (!Number.isInteger(avatar) || avatar < 0 || avatar >= AVATARS) throw new LocalError('error.badRequest');
     if (r.status !== 'LOBBY') throw new LocalError('error.gameStarted');
     const seat = r.settings.seats.findIndex((c, i) => c === 'HUMAN' && !r.players.some((p) => p.seat === i));
     if (seat < 0) throw new LocalError('error.roomFull');
-    const p = { token: token(), name: clean, seat };
+    const p: Player = { token: token(), name: clean, seat, avatar, ...(realmName ? { realm: realmName } : {}) };
     r.players.push(p);
     save();
     fire('view');

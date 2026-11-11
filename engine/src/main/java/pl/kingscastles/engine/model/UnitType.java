@@ -2,11 +2,11 @@ package pl.kingscastles.engine.model;
 
 /** Army units. Rock-paper-scissors: Spearman beats Knight, Knight beats Archer, Archer beats Spearman. */
 public enum UnitType {
-    SPEARMAN(20, 2, 2, 3, 1, false),
-    ARCHER(30, 3, 3, 2, 1, true),
-    KNIGHT(50, 5, 5, 3, 2, true),
-    RAM(60, 4, 1, 1, 1, true),
-    SETTLER(60, 2, 0, 0, 1, false);
+    SPEARMAN(20, 2, 2, 3, 2, false),
+    ARCHER(30, 3, 3, 2, 2, true),
+    KNIGHT(50, 5, 5, 3, 3, true),
+    RAM(60, 4, 1, 1, 2, true),
+    SETTLER(60, 2, 0, 0, 2, false);
 
     public final int cost;
     public final int upkeep;

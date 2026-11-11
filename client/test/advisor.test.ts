@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { advise, current } from '../src/game/advisor';
+import { advise, armyStep, kindOf, moveOf, saving } from '../src/game/advisor';
+import { nearestVillageSpot, villageSpot } from '../src/game/rules';
 import { setLang } from '../src/i18n';
 import type { GameState, KingdomView, Order, Rules } from '../src/types';
 
@@ -11,7 +12,10 @@ const rules: Rules = {
     { type: 'TREASURY', cost: 80, place: 'CASTLE' },
     { type: 'GREAT_PALACE', cost: 500, place: 'CASTLE' },
   ],
-  units: [{ type: 'SPEARMAN', cost: 20, upkeep: 2, attack: 2, defense: 3, move: 1, needsBarracks: false }],
+  units: [
+    { type: 'SPEARMAN', cost: 20, upkeep: 2, attack: 2, defense: 3, move: 1, needsBarracks: false },
+    { type: 'SETTLER', cost: 60, upkeep: 2, attack: 0, defense: 0, move: 2, needsBarracks: false },
+  ],
   kingdoms: [],
   balance: { palaceInstallment: 100, marketIncome: 5, goldMineIncome: 10, peaceTurns: 5 },
 };
@@ -45,54 +49,99 @@ function start(gold = 100): GameState {
 setLang('pl');
 
 describe('Grosik, the advisor', () => {
-  it('starts the first turn with a market in the castle, then a farm, then "end the turn"', () => {
-    const steps = advise(start(), rules, [], false);
-    expect(steps.map((x) => x.id)).toEqual(['build-1-MARKET', 'build-2-FARM', 'ready']);
-    expect(current(steps)?.target).toEqual({ kind: 'settlement', id: 1, building: 'MARKET' });
-  });
-
-  it('ticks a step off when the child gives that order, and moves on to the next one', () => {
-    const draft: Order[] = [{ order: 'build', settlementId: 1, building: 'MARKET' }];
-    const steps = advise(start(), rules, draft, false);
-    expect(steps.find((x) => x.id === 'build-1-MARKET')?.done).toBe(true);
-    expect(current(steps)?.id).toBe('build-2-FARM');
+  it('starts the first turn with a market in the castle, then a farm', () => {
+    const steps = advise(start(), rules);
+    expect(steps.map((x) => x.id).slice(0, 2)).toEqual(['build-1-MARKET', 'build-2-FARM']);
+    expect(steps[0].move).toBe('BUILD');
+    expect(steps[0].target).toEqual({ kind: 'settlement', id: 1, building: 'MARKET' });
   });
 
   it('only suggests what the child can pay for', () => {
-    const steps = advise(start(40), rules, [], false);
-    expect(steps.map((x) => x.id)).toEqual(['build-2-FARM', 'ready']);
+    const steps = advise(start(40), rules);
+    expect(steps.map((x) => x.id)).toEqual(['build-2-FARM']);
   });
 
   it('says that saving is a good move when nothing is affordable', () => {
-    const steps = advise(start(10), rules, [], false);
-    expect(steps[0].id).toBe('save');
-    expect(steps[0].text).toContain('30');
-    expect(current(steps)?.id).toBe('ready');
+    expect(advise(start(10), rules)).toEqual([]);
+    expect(saving(start(10), rules)).toContain('30');
   });
 
   it('suggests a gold mine on the hills once the market and the farm are there', () => {
     const s = start(100);
     s.settlements[0].buildings = ['MARKET'];
     s.settlements[1].buildings = ['FARM'];
-    const now = current(advise(s, rules, [], false));
-    expect(now?.target).toEqual({ kind: 'tile', pos: { x: 3, y: 3 }, building: 'GOLD_MINE' });
+    expect(advise(s, rules)[0].target).toEqual({ kind: 'tile', pos: { x: 3, y: 3 }, building: 'GOLD_MINE' });
   });
 
-  it('sends an idle army one step towards ruins that are close', () => {
+  it('sends an army one step towards ruins that are close: an Army move', () => {
     const s = start(0);
     s.map.ruins = [{ x: 6, y: 4 }];
-    const step = advise(s, rules, [], false).find((x) => x.id === 'ruins-7');
+    const step = advise(s, rules).find((x) => x.id === 'ruins-7');
+    expect(step?.move).toBe('ARMY');
     expect(step?.target).toMatchObject({ kind: 'unit', id: 7, dest: { x: 3, y: 3 } });
   });
 
   it('feeds hungry people first', () => {
     const s = start(100);
     s.kingdoms[0].food = 2;
-    expect(current(advise(s, rules, [], false))?.id).toBe('build-2-FARM');
+    expect(advise(s, rules)[0].id).toBe('build-2-FARM');
   });
 
-  it('is finished once the child pressed Ready', () => {
-    const steps = advise(start(), rules, [], true);
-    expect(steps.find((x) => x.id === 'ready')?.done).toBe(true);
+  it('suggests a trade deal, a Diplomacy move, from the third turn', () => {
+    const s = start(0);
+    s.kingdoms.push({ ...fox(0), id: 'owl', name: 'Owl' });
+    expect(advise(s, rules).some((x) => x.id === 'trade')).toBe(false);
+    s.turn = 3;
+    expect(advise(s, rules).find((x) => x.id === 'trade')?.move).toBe('DIPLOMACY');
+  });
+});
+
+describe('the settler', () => {
+  const withSettler = (x: number, y: number) => {
+    const s = start(0);
+    s.units.push({ id: 9, owner: 'fox', type: 'SETTLER', pos: { x, y } });
+    return s;
+  };
+
+  it('is led away from the castle towards a field where a village may stand', () => {
+    const step = advise(withSettler(3, 2), { ...rules, balance: { ...rules.balance, settlerMinDistance: 3 } }).find((x) => x.id === 'settler-9');
+    expect(step?.move).toBe('ARMY');
+    expect(step?.target.kind).toBe('unit');
+  });
+
+  it('founds the village once it stands on a good field', () => {
+    const steps = advise(withSettler(9, 2), { ...rules, balance: { ...rules.balance, settlerMinDistance: 3 } });
+    expect(steps[0]).toMatchObject({ id: 'found-9', move: 'ARMY', target: { kind: 'unit', id: 9, dest: { x: 9, y: 2 } } });
+  });
+
+  it('knows the good and the bad fields', () => {
+    const s = withSettler(9, 2);
+    expect(villageSpot(s, rules, { x: 9, y: 2 })).toBe('ok');
+    expect(villageSpot(s, rules, { x: 6, y: 2 })).toBe('tooClose');
+    expect(nearestVillageSpot(s, rules, { x: 5, y: 3 })).toEqual({ x: 8, y: 0 });
+  });
+});
+
+describe('one turn, one move', () => {
+  it('sorts every order into a kind of move; answers to offers are free', () => {
+    const kinds = ([
+      { order: 'move', unitId: 1, path: [] }, { order: 'recruit', settlementId: 1, unit: 'SPEARMAN' },
+      { order: 'build', settlementId: 1, building: 'FARM' }, { order: 'setTax', rate: 'LOW' }, { order: 'takeLoan' },
+      { order: 'proposeTreaty', to: 'owl', type: 'PACT' }, { order: 'acceptTreaty', from: 'owl', type: 'PACT' },
+      { order: 'rejectTreaty', from: 'owl', type: 'TRADE' },
+    ] as Order[]).map(kindOf);
+    expect(kinds).toEqual(['ARMY', 'ARMY', 'BUILD', 'ECONOMY', 'ECONOMY', 'DIPLOMACY', 'ANSWER', 'ANSWER']);
+  });
+
+  it('finds the move among the answers', () => {
+    const draft: Order[] = [{ order: 'acceptTreaty', from: 'owl', type: 'PACT' }, { order: 'setTax', rate: 'LOW' }];
+    expect(moveOf(draft)).toEqual({ order: 'setTax', rate: 'LOW' });
+    expect(moveOf(draft.slice(0, 1))).toBeUndefined();
+  });
+
+  it('lets an Army move walk every army; training one is the counted move', () => {
+    expect(armyStep({ order: 'move', unitId: 1, path: [] })).toBe(true);
+    expect(armyStep({ order: 'attack', unitId: 1, target: { x: 0, y: 0 } })).toBe(true);
+    expect(armyStep({ order: 'recruit', settlementId: 1, unit: 'SPEARMAN' })).toBe(false);
   });
 });

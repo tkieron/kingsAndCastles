@@ -17,6 +17,12 @@ mvn test
 kingdom's orders for the turn, `game.endTurn()` carries out everyone's orders together and returns the
 turn report (Chronicle events with translation keys, each kingdom's Ledger, prestige).
 
+One turn is one move. At the start of a turn a kingdom first answers treaty offers (accept or decline, free), then
+picks one kind of move (army, buildings, economy or diplomacy) and gives one order of that kind
+(`Balance.actionsPerTurn`, 1). An Army move also walks or attacks with every army at once; training an army or
+founding a village is the counted move. Computer kings play by the same rule. The client shows the offers, and news that
+someone broke a treaty with you, as a card before the move.
+
 A turn is resolved in fixed phases, so the result never depends on who clicked first:
 0 reserve gold · 1 deals · 2 gifts · 3 market · 4 move (step by step, meetings fight) · 5 attacks (fastest first)
 · 6 capture · 7 build and recruit · 8 money and food · 9 next turn and victory check.
