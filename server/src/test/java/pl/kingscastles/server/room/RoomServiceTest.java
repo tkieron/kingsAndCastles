@@ -45,6 +45,21 @@ class RoomServiceTest {
     }
 
     @Test
+    void theKingdomNameIsOptionalAndThePictureIsOneOfTwenty() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        assertEquals("error.badRealm", assertThrows(GameException.class,
+                () -> s.join(room.code(), "Ania", "x".repeat(25), 0)).key);
+        assertEquals("error.badRequest", assertThrows(GameException.class,
+                () -> s.join(room.code(), "Ania", "", 20)).key);
+        Player ania = s.join(room.code(), "Ania", "  Słoneczna Dolina ", 7);
+        Player bartek = s.join(room.code(), "Bartek", "   ", 2);
+        assertEquals("Słoneczna Dolina", ania.realm());
+        assertEquals(7, ania.avatar());
+        assertNull(bartek.realm(), "an empty name keeps the kingdom's own name");
+    }
+
+    @Test
     void onlyTheHostStartsAndNobodyJoinsAfterwards() {
         RoomService s = service();
         Room room = s.create(TWO_CHILDREN_NO_CLOCK);

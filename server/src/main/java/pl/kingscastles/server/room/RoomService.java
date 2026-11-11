@@ -115,10 +115,22 @@ public class RoomService {
     }
 
     public Player join(String code, String name) {
+        return join(code, name, null, 0);
+    }
+
+    /** @param realm the kingdom's name chosen by the child; empty keeps the kingdom's own name */
+    public Player join(String code, String name, String realm, int avatar) {
         Room room = room(code);
         String clean = name == null ? "" : name.strip();
         if (clean.isEmpty() || clean.length() > 20) {
             throw new GameException("error.badName");
+        }
+        String realmName = realm == null ? "" : realm.strip();
+        if (realmName.length() > Player.REALM_MAX) {
+            throw new GameException("error.badRealm");
+        }
+        if (avatar < 0 || avatar >= Player.AVATARS) {
+            throw new GameException("error.badRequest");
         }
         Player p;
         synchronized (room) {
@@ -136,7 +148,7 @@ public class RoomService {
             if (seat < 0) {
                 throw new GameException("error.roomFull");
             }
-            p = new Player(UUID.randomUUID().toString(), clean, seat);
+            p = new Player(UUID.randomUUID().toString(), clean, seat, realmName.isEmpty() ? null : realmName, avatar);
             room.record.players.add(p);
             store.save(room.record);
         }

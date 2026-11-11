@@ -3,8 +3,22 @@ import type { ChronicleEvent, GameState, LedgerLine, Order } from '../types';
 
 const KINGDOM_PARAMS = new Set(['kingdom', 'by', 'from', 'to', 'with', 'a', 'b', 'vassal', 'attacker', 'defender', 'target']);
 
+/** Names the children gave their kingdoms, by kingdom id. Set from the lobby and from every game state. */
+const realms = new Map<string, string>();
+
+export function setRealms(list: { id: string; realm?: string }[]): void {
+  realms.clear();
+  for (const k of list) if (k.realm) realms.set(k.id, k.realm);
+}
+
+/** The name the child chose for the kingdom, or the kingdom's own name "z urzędu" when they left it empty. */
 export function kingdomName(id: string | undefined | null): string {
   if (!id) return '';
+  return realms.get(id) ?? defaultKingdomName(id);
+}
+
+/** The kingdom's own name in the chosen language. */
+export function defaultKingdomName(id: string): string {
   return hasKey(`k.${id}`) ? t(`k.${id}`) : id;
 }
 

@@ -17,8 +17,9 @@
   --good: #8fe3a0;
   --good-dark: #2f7a3e;
   --bad: #ff7a7a;
-  --pixel: 'Pixelify Sans', ui-monospace, monospace;
-  --body: 'Nunito', system-ui, sans-serif;
+  /* one plain, easy-to-read font everywhere (the pixel font was hard to read); headings are just bolder */
+  --pixel: 'Nunito', 'Segoe UI', Roboto, Arial, sans-serif;
+  --body: 'Nunito', 'Segoe UI', Roboto, Arial, sans-serif;
   color-scheme: dark;
 }
 
@@ -27,7 +28,7 @@ html, body { margin: 0; background: var(--night); color: var(--text); font-famil
 body { min-height: 100vh; -webkit-tap-highlight-color: transparent; }
 button { font-family: var(--body); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
-h1, h2 { font-family: var(--pixel); color: var(--gold); margin: 0; }
+h1, h2 { font-family: var(--pixel); font-weight: 800; color: var(--gold); margin: 0; }
 h2 { font-size: 22px; }
 .center { text-align: center; }
 .loading { text-align: center; padding: 40px; font-family: var(--pixel); font-size: 22px; }
@@ -293,6 +294,7 @@ h2 { font-size: 22px; }
   box-shadow: 0 8px 0 var(--ink);
 }
 .tut-card.middle { left: 50% !important; top: 50% !important; bottom: auto !important; transform: translate(-50%, -50%); }
+.tut-card { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; }
 .tut-card.inside { bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important; top: auto !important; }
 .tut-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .tut-count { font-family: var(--pixel); color: var(--parch-muted); font-size: 14px; }
@@ -331,3 +333,67 @@ h2 { font-size: 22px; }
 .settler { display: flex; flex-direction: column; gap: 6px; border-top: 2px dashed #d8c79a; padding-top: 6px; }
 .settler p { margin: 0; }
 .btn-ready.found-here { font-size: 20px; }
+
+/* ------------------------------------------------------------ who the child is: name, picture, kingdom name */
+.need { color: var(--bad); }
+.field-title { font-weight: 700; font-size: 14px; }
+.card-light .muted-dark { color: var(--muted); font-weight: 400; }
+.avatar-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.avatar-pick {
+  padding: 3px; background: var(--card); border: 3px solid var(--ink); cursor: pointer; line-height: 0;
+  display: flex; justify-content: center;
+}
+.avatar-pick svg { width: 100%; max-width: 56px; height: auto; image-rendering: pixelated; }
+.avatar-pick:hover { border-color: var(--gold-light); }
+.avatar-pick.chosen { border-color: var(--gold); background: var(--gold); box-shadow: 0 0 0 2px var(--gold-light); transform: translateY(-2px); }
+.avatar-pick:focus-visible { outline: 3px solid var(--gold-light); outline-offset: 2px; }
+.me-avatar, .chip-avatar { flex: none; border: 3px solid var(--ink); line-height: 0; background: var(--ink); }
+.chip-avatar { display: inline-block; border-width: 2px; vertical-align: middle; margin-right: 6px; }
+.chip .chip-avatar { margin-right: 0; }
+
+/* ------------------------------------------------------------ Grosik, the guide */
+.grosik-svg { display: block; overflow: visible; }
+.grosik-svg .grosik-lid { opacity: 0; animation: grosik-blink 4.5s infinite; }
+.grosik-svg .grosik-jaw { animation: grosik-talk 0.5s steps(2) 6; }
+.grosik-svg .grosik-wave { transform-box: fill-box; transform-origin: bottom; animation: grosik-wave 1.2s ease-in-out 3; }
+@keyframes grosik-blink { 0%, 94%, 100% { opacity: 0; } 96% { opacity: 1; } }
+@keyframes grosik-talk { 50% { opacity: 0; } }
+@keyframes grosik-wave { 50% { transform: rotate(-25deg); } }
+@keyframes grosik-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes grosik-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.quest { position: relative; }
+.quest-face { background: none; border: none; padding: 0; cursor: pointer; animation: grosik-bob 2.4s ease-in-out infinite; }
+.quest-face svg { width: 48px; height: 54px; }
+.quest-face:focus-visible { outline: 3px solid var(--gold-dark); outline-offset: 2px; }
+.grosik-pop {
+  position: absolute; left: 8px; top: calc(100% + 10px); z-index: 20; max-width: min(360px, calc(100% - 16px));
+  background: var(--parch-light); color: var(--parch-ink); border: 3px solid var(--ink); border-radius: 10px;
+  padding: 8px 34px 8px 10px; font-size: 15px; line-height: 1.35; box-shadow: 0 4px 0 var(--ink);
+  animation: grosik-pop 0.18s ease-out;
+}
+.grosik-pop::before {
+  content: ''; position: absolute; left: 22px; top: -12px; border: 9px solid transparent; border-bottom-color: var(--ink); border-top: 0;
+}
+.grosik-pop .x { position: absolute; top: 4px; right: 4px; color: var(--parch-ink); border-color: var(--parch-muted); }
+.tut-speech { display: flex; gap: 12px; align-items: flex-start; }
+.tut-grosik { flex: none; animation: grosik-bob 2.4s ease-in-out infinite; }
+.tut-grosik svg { width: 64px; height: 72px; }
+.bubble-left {
+  position: relative; flex: 1; background: var(--parch-light); border: 2px solid var(--parch-ink); border-radius: 10px; padding: 8px 10px;
+}
+.bubble-left::before {
+  content: ''; position: absolute; left: -10px; top: 18px; border: 8px solid transparent; border-right-color: var(--parch-ink); border-left: 0;
+}
+@media (max-width: 520px), (max-height: 700px) {
+  .tut-grosik svg { width: 44px; height: 50px; }
+  .tut-speech { gap: 10px; }
+  .bubble-left { padding: 6px 8px; }
+  .tut-text { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-face, .tut-grosik, .grosik-svg .grosik-lid, .grosik-svg .grosik-jaw, .grosik-svg .grosik-wave, .grosik-pop { animation: none; }
+}
+.who-row { gap: 10px; }
+.who-pick { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; padding: 8px 10px; }
+.who-pick svg { border: 2px solid var(--ink); }
+.col[hidden] { display: none; }
