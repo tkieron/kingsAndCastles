@@ -67,6 +67,9 @@ export class GameScreen {
   /** Tabs the child has opened, so a tab that appears later can say "New!" until then. */
   private readonly seenTabs = new Set<Tab>(['move', 'ledger', 'chronicle']);
   private blink = false;
+  /** Field size the child chose with the zoom buttons; the map grows past it to fill the free width. */
+  private zoomBase = 33;
+  private readonly resizer = new ResizeObserver(() => this.fitMap());
   /** The top bar: folded to one slim row of icons (the default), or the full bar with all seven kingdoms. */
   private barOpen = pref('kc.barOpen', false);
   /** The right panel on a computer: open (full, as before) or folded to a narrow strip of icons. */
@@ -84,6 +87,7 @@ export class GameScreen {
     window.addEventListener('keydown', this.onKey);
     this.root.append(this.header, h('div', { class: 'game-body' }, this.board, this.panel));
     this.map.setFieldSize(33);
+    this.resizer.observe(this.mapBox);
     this.ticker = window.setInterval(() => this.tick(), 500);
   }
 
@@ -93,6 +97,7 @@ export class GameScreen {
 
   destroy(): void {
     window.clearInterval(this.ticker);
+    this.resizer.disconnect();
     window.removeEventListener('keydown', this.onKey);
     this.tutorial?.close();
     this.summary?.remove();
@@ -153,6 +158,7 @@ export class GameScreen {
             if (old && this.me()) this.showSummary(old);
           }
         }
+        if (before === undefined) this.fitMap();
         if (before === undefined && this.me()) this.centreOnCastle();
         this.render();
         // Grosik greets the ruler at the start of every new game (and the first time ever, whenever they come in)
@@ -251,7 +257,20 @@ export class GameScreen {
   }
 
   private zoom(delta: number): void {
-    this.map.setFieldSize(this.map.fieldSize() + delta);
+    this.zoomBase = Math.max(22, Math.min(55, this.map.fieldSize() + delta));
+    this.fitMap();
+  }
+
+  /**
+   * The map always fills the width it has: when the panel folds or the window grows, the fields get bigger
+   * (in steps of 11 px, so the pixel art stays sharp). The zoom buttons still work above that size.
+   */
+  private fitMap(): void {
+    const cols = this.state?.map.width;
+    const w = this.mapBox.clientWidth;
+    const fit = cols && w ? Math.min(55, Math.ceil(w / cols / 11) * 11) : 0;
+    const size = Math.max(this.zoomBase, fit);
+    if (size !== this.map.fieldSize()) this.map.setFieldSize(size);
   }
 
   private centreOnCastle(): void {
@@ -1105,10 +1124,12 @@ export class GameScreen {
       go = h('button', { class: 'btn-ready quest-go', onclick: () => this.endTurnNow() }, t('game.endTurn'));
     } else if (!this.kind) {
       const best = this.steps[0];
+      // the first turn explains the four kinds in big cards; after that the child knows them: small icon buttons
+      const small = s.turn > 1;
       append(body,
-        h('div', { class: 'quest-label' }, t('turn.pickWhy')),
-        h('div', { class: 'quest-now' }, t('turn.pick')),
-        this.kindPicker(),
+        small ? null : h('div', { class: 'quest-label' }, t('turn.pickWhy')),
+        h('div', { class: small ? 'quest-now small-now' : 'quest-now' }, t('turn.pick')),
+        this.kindPicker(small),
         h('div', { class: 'quest-why' }, best ? `★ ${t('turn.advice', { text: best.text })}` : saving(s, this.rules) ?? ''));
     } else {
       const idea = this.idea();
@@ -1152,16 +1173,17 @@ export class GameScreen {
   }
 
   /** The four kinds of move as big buttons; the one Grosik would pick has a star. */
-  private kindPicker(): HTMLElement {
+  private kindPicker(small = false): HTMLElement {
     const best = this.steps[0]?.move;
-    return h('div', { class: 'kinds' }, ...KINDS.map((k) => h('button', {
+    return h('div', { class: `kinds${small ? ' small' : ''}` }, ...KINDS.map((k) => h('button', {
       class: `kind-btn${k === best ? ' suggested' : ''}`, 'data-kind': k, disabled: this.amReady(),
+      title: `${t(`move.${k}`)}: ${t(`moveSub.${k}`)}`,
       onclick: () => this.chooseKind(k),
     },
     h('span', { class: 'kind-icon', 'aria-hidden': 'true' }, KIND_ICON[k]),
     h('span', { class: 'kind-name' }, t(`move.${k}`)),
-    h('span', { class: 'kind-sub' }, t(`moveSub.${k}`)),
-    k === best ? h('span', { class: 'kind-star' }, t('turn.advised')) : null)));
+    small ? null : h('span', { class: 'kind-sub' }, t(`moveSub.${k}`)),
+    k === best ? h('span', { class: 'kind-star' }, small ? '★' : t('turn.advised')) : null)));
   }
 
   /** The "Your move" tab: what to do for the chosen kind of move; economy and diplomacy are chosen right here. */

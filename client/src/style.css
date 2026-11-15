@@ -428,3 +428,16 @@ h2 { font-size: 22px; }
   .mini { font-size: 14px; }
   .btn.fold { padding: 4px 8px; }
 }
+
+/* from turn 2: the four kinds of move as a row of small icon buttons */
+.quest-now.small-now { font-size: 17px; }
+.kinds.small { grid-template-columns: repeat(4, minmax(0, max-content)); gap: 6px; margin: 4px 0 2px; }
+.kinds.small .kind-btn { flex-direction: row; gap: 6px; padding: 5px 10px; }
+.kinds.small .kind-icon { font-size: 20px; }
+.kinds.small .kind-name { font-size: 15px; }
+.kinds.small .kind-star { font-size: 14px; }
+@media (max-width: 600px) {
+  .kinds.small { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kinds.small .kind-btn { flex-direction: column; gap: 0; padding: 4px 2px; }
+  .kinds.small .kind-name { font-size: 11px; }
+}
