@@ -60,8 +60,12 @@ try {
   await shot(kids[0], '2-turn-1');
 
   for (const page of kids) {
-    const skip = page.getByRole('button', { name: 'Pomiń' });
-    if (await skip.count()) await skip.first().click();
+    // Grosik's welcome tour opens a moment after the game screen; skip it once it is there
+    const tour = page.getByRole('dialog', { name: 'Jak grać' });
+    if (await tour.waitFor({ timeout: 8000 }).then(() => true, () => false)) {
+      await tour.getByRole('button', { name: 'Pomiń' }).click();
+      await tour.waitFor({ state: 'hidden' });
+    }
     await page.getByRole('button', { name: /Gotowe/ }).first().click();
   }
   for (const page of kids) {

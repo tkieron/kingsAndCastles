@@ -11,12 +11,20 @@ call() { curl -sS -H "Authorization: Bearer $CF" -H "Content-Type: application/j
 zone="$(call "$api/zones?name=$ZONE" | jq -r '.result[0].id // empty')"
 [ -n "$zone" ] || { echo "::error::The Cloudflare token cannot see the zone $ZONE"; exit 1; }
 
+# the zone's own SSL mode (needs Zone Settings: Read); "full" or "strict" already works for the game
+zmode="$(call "$api/zones/$zone/settings/ssl" | jq -r 'if .success then .result.value else "unknown" end')"
+echo "info: SSL mode of the whole zone $ZONE: $zmode"
+
 desc="Kings & Castles: SSL Full (strict) for $DOMAIN"
 entry="$(call "$api/zones/$zone/rulesets/phases/http_config_settings/entrypoint")"
 code="$(echo "$entry" | jq -r '.errors[0].code // empty')"
 if ! echo "$entry" | jq -e '.success' >/dev/null; then
   # 10003 = no configuration rules in this zone yet; anything else is most likely a missing permission
   if [ "$code" != "10003" ]; then
+    if [ "$zmode" = full ] || [ "$zmode" = strict ]; then
+      echo "ok: no access to Configuration Rules, but the zone is already '$zmode', which is enough for $DOMAIN"
+      exit 0
+    fi
     echo "::error::The Cloudflare token cannot read Configuration Rules: $(echo "$entry" | jq -c '.errors')."
     echo "Add the permission Zone → Config Rules → Edit to the token (My Profile → API Tokens → Edit)."
     exit 1
