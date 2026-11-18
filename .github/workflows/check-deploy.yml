@@ -65,6 +65,13 @@ jobs:
               command -v caddy >/dev/null && echo "caddy: installed" || echo "caddy: not yet (install.sh adds it)"
               ss -ltnpH 2>/dev/null | awk "{print \$4, \$6}" | grep -E ":(80|443|8080) " | sed "s/^/port in use: /" || true
               for s in nginx apache2 caddy traefik haproxy docker; do systemctl is-active --quiet "$s" 2>/dev/null && echo "running service: $s"; done
+              if command -v docker >/dev/null; then
+                docker ps --format "container: {{.Names}} | image: {{.Image}} | ports: {{.Ports}}" 2>/dev/null || true
+                for c in $(docker ps -q --filter publish=443 2>/dev/null); do
+                  docker inspect -f "proxy on 443: {{.Name}} {{.Config.Image}} networks: {{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}" "$c" 2>/dev/null
+                  docker inspect -f "{{range .Mounts}}mount: {{.Source}} -> {{.Destination}}{{println}}{{end}}" "$c" 2>/dev/null
+                done
+              fi
               [ -d /etc/nginx/sites-enabled ] && ls /etc/nginx/sites-enabled | sed "s/^/nginx site: /" || true
             ' || { rc=$?; rm -f ~/.ssh/kc-deploy; echo "::error::SSH failed (exit $rc). 'Permission denied' means the key in MIKRUS_SSH_KEY is not in ~/.ssh/authorized_keys of user ${USER_NAME:-root}"; exit $rc; }
           rm -f ~/.ssh/kc-deploy
