@@ -63,7 +63,9 @@ jobs:
               command -v systemctl >/dev/null && echo "ok: systemd is there" || echo "::warning::no systemctl"
               ls -d /usr/lib/jvm/*21* 2>/dev/null | head -1 | sed "s/^/java 21: /" || true
               command -v caddy >/dev/null && echo "caddy: installed" || echo "caddy: not yet (install.sh adds it)"
-              ss -ltn 2>/dev/null | awk "NR>1 {print \$4}" | grep -E ":(80|443|8080)$" | sed "s/^/port in use: /" || true
+              ss -ltnpH 2>/dev/null | awk "{print \$4, \$6}" | grep -E ":(80|443|8080) " | sed "s/^/port in use: /" || true
+              for s in nginx apache2 caddy traefik haproxy docker; do systemctl is-active --quiet "$s" 2>/dev/null && echo "running service: $s"; done
+              [ -d /etc/nginx/sites-enabled ] && ls /etc/nginx/sites-enabled | sed "s/^/nginx site: /" || true
             ' || { rc=$?; rm -f ~/.ssh/kc-deploy; echo "::error::SSH failed (exit $rc). 'Permission denied' means the key in MIKRUS_SSH_KEY is not in ~/.ssh/authorized_keys of user ${USER_NAME:-root}"; exit $rc; }
           rm -f ~/.ssh/kc-deploy
 
