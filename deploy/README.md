@@ -41,8 +41,13 @@ cat kc-deploy.pub      # dopisz tę linię na Mikrusie do /root/.ssh/authorized_
 cat kc-deploy          # to wklej jako sekret MIKRUS_SSH_KEY, potem usuń oba pliki z komputera
 ```
 
-W Cloudflare dla `pointsapp.pl` ustaw jeszcze **SSL/TLS → Overview → Full (strict)**. W trybie „Flexible”
-strona kręciłaby się w kółko między HTTP i HTTPS.
+Token Cloudflare potrzebuje uprawnień: **Zone → DNS → Edit**, **Zone → Zone → Read** i **Zone → Config Rules → Edit**,
+tylko dla strefy `pointsapp.pl`. Dzięki ostatniemu workflow sam ustawia regułę „SSL Full (strict)” wyłącznie dla
+`kc.pointsapp.pl` (`deploy/cloudflare-ssl.sh`), więc inne subdomeny zachowują swój tryb SSL. Bez tej reguły, przy trybie
+„Flexible”, strona kręciłaby się w kółko między HTTP i HTTPS.
+
+Czy wszystko jest gotowe, pokaże workflow **Actions → Check the deploy setup → Run workflow**: niczego nie zmienia,
+tylko sprawdza sekrety, logowanie SSH, adres IPv6 Mikrusa i token Cloudflare.
 
 ## Sprawdzenie
 
@@ -54,6 +59,8 @@ strona kręciłaby się w kółko między HTTP i HTTPS.
 - **Workflow pisze „Missing repository secrets”**: brakuje sekretu z tabeli wyżej.
 - **„Host key verification failed”**: `MIKRUS_KNOWN_HOSTS` nie pasuje, wygeneruj go ponownie.
 - **„The Cloudflare token cannot see the zone”**: token nie ma dostępu do `pointsapp.pl`.
+- **„cannot read Configuration Rules”**: dodaj tokenowi uprawnienie Zone → Config Rules → Edit.
+- **„Permission denied (publickey)”**: publicznej części klucza (`kc-deploy.pub`) nie ma w `/root/.ssh/authorized_keys` na Mikrusie.
 - **Usługa nie startuje z błędem `226/NAMESPACE`**: kontener Mikrusa nie pozwala na część zabezpieczeń systemd.
   Zakomentuj w `deploy/kingscastles.service` linie `ProtectSystem`, `ProtectHome` i `PrivateTmp` i uruchom workflow ponownie.
 - **Strona nie odpowiada zaraz po pierwszym wdrożeniu**: nowy rekord DNS i certyfikat HTTPS potrzebują kilku minut.

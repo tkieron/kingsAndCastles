@@ -120,6 +120,11 @@ jobs:
           scp -q "$RUNNER_TEMP/kc.tgz" mikrus:/tmp/kc-release/kc.tgz
           ssh mikrus "cd /tmp/kc-release && tar -xzf kc.tgz && KC_DOMAIN=$DOMAIN bash ./install.sh && rm -rf /tmp/kc-release"
 
+      - name: Cloudflare checks the server's certificate (SSL Full (strict), only for kc)
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bash deploy/cloudflare-ssl.sh apply
+
       - name: Check the game from the internet
         run: |
           for i in $(seq 1 20); do

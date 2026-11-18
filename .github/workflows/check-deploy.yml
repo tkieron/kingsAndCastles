@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['claude/**']
-    paths: ['.github/workflows/check-deploy.yml']
+    paths: ['.github/workflows/check-deploy.yml', 'deploy/cloudflare-ssl.sh']
 
 permissions:
   contents: read
@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
       - name: Secrets are set
         env:
           SSH_KEY: ${{ secrets.MIKRUS_SSH_KEY }}
@@ -81,3 +82,9 @@ jobs:
           r="$(curl -sS -H "Authorization: Bearer $CF" "$api/zones/$zone/dns_records?name=$DOMAIN")"
           echo "$r" | jq -e '.success' >/dev/null && echo "ok: the token can read DNS records" || { echo "::error::cannot read DNS records"; exit 1; }
           echo "records for $DOMAIN now: $(echo "$r" | jq -r '[.result[] | .type + (if .proxied then " (proxied)" else "" end)] | join(", ") | if . == "" then "none yet" else . end')"
+
+      - name: Cloudflare SSL rule
+        if: ${{ !cancelled() }}
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bash deploy/cloudflare-ssl.sh check
