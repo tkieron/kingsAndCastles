@@ -446,6 +446,7 @@ export const en = {
 
   // ------------------------------------------------------------ errors
   'error.noSuchRoom': 'There is no room with this code.',
+  'error.serverFull': 'The server has too many games right now. Try again later.',
   'error.badName': 'Write your name (up to 20 letters).',
   'error.badRealm': 'The kingdom name can have up to 24 letters.',
   'error.gameStarted': 'This game has already started.',

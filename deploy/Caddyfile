@@ -1,5 +1,17 @@
 # Caddy gets the HTTPS certificate by itself and passes WebSocket connections through.
+# The Java server behind it serves the game page, the API and the WebSocket on one address.
 kc.pointsapp.pl {
 	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	request_body {
+		max_size 64KB
+	}
 	reverse_proxy 127.0.0.1:8080
 }

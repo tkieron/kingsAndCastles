@@ -433,6 +433,7 @@ export const pl: Record<Key, string> = {
   'ledger.merchant': 'Kupiec',
 
   'error.noSuchRoom': 'Nie ma pokoju z takim kodem.',
+  'error.serverFull': 'Na serwerze jest teraz za dużo gier. Spróbuj trochę później.',
   'error.badName': 'Wpisz imię (do 20 liter).',
   'error.badRealm': 'Nazwa królestwa może mieć do 24 liter.',
   'error.gameStarted': 'Ta gra już się zaczęła.',

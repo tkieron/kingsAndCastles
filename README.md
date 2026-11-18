@@ -44,7 +44,10 @@ Settings (environment variables):
 |---|---|---|
 | `PORT` | `8080` | HTTP and WebSocket port |
 | `KC_DATA_DIR` | `./data` | Folder where each room is saved as `<code>.json` after every change |
-| `KC_ALLOWED_ORIGINS` | `*` | Where the PWA is served from, e.g. `https://tkieron.github.io` |
+| `KC_ALLOWED_ORIGINS` | `*` | Other addresses allowed to call the API and WebSocket, e.g. `https://kc.pointsapp.pl` |
+| `KC_CLIENT_DIR` | (empty) | Folder with the built game page (`client/dist`); the server then serves the game too |
+| `KC_MAX_ROOMS` | `500` | At most this many rooms at once |
+| `KC_ROOM_IDLE_DAYS` | `14` | A room nobody touched for this many days is removed |
 
 A saved room keeps only the seed and the children's orders, so after a restart every game is rebuilt
 exactly by replaying them (computer kings decide the same way again).
@@ -81,7 +84,7 @@ cd client
 npm install
 npm run dev          # http://localhost:5173, talks to the server on http://localhost:8080
 npm test             # rules and texts
-npm run build        # dist/ is ready for GitHub Pages
+npm run build        # dist/ is served by the Java server (KC_CLIENT_DIR)
 ```
 
 The server address comes from `?server=https://…` in the page address (remembered on the device), or from
@@ -119,5 +122,16 @@ page address.
 
 ## Deployment
 
-The client is published to GitHub Pages by `.github/workflows/pages.yml`; the server runs on a small VPS behind Caddy.
-Step-by-step instructions (in Polish) are in [`deploy/README.md`](deploy/README.md).
+The Java server also serves the built game page (`KC_CLIENT_DIR=client/dist`), so the whole game lives at one
+address, https://kc.pointsapp.pl. Every change on `main` is tested and deployed to a small VPS (mikr.us) behind Caddy
+and Cloudflare by `.github/workflows/deploy.yml`. Setup and the secrets it needs (in Polish) are in
+[`deploy/README.md`](deploy/README.md).
+
+To run the server version on your own computer:
+
+```bash
+mvn -B package
+cd client && npm ci && npm run build && cd ..
+KC_CLIENT_DIR=client/dist java -jar server/target/server-0.1.0-SNAPSHOT.jar   # http://localhost:8080
+cd client && npm run e2e      # plays a two-child game in a real browser against that server
+```

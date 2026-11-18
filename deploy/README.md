@@ -1,64 +1,74 @@
 # Wdrożenie
 
-Gra ma dwie części:
+Gra działa pod jednym adresem: **https://kc.pointsapp.pl**. Serwer w Javie na Mikrusie podaje stronę gry,
+API i WebSocket, a przed nim stoją Caddy (HTTPS) i Cloudflare (adres IPv4 i IPv6 dla wszystkich).
 
-- **klient** (to, co dzieci otwierają w przeglądarce): GitHub Pages, adres `https://tkieron.github.io/kingsAndCastles/`;
-- **serwer** (pokoje, tury, zapis gier): mikr.us, adres `https://kc.pointsapp.pl`.
-
-## 1. Klient na GitHub Pages (raz)
-
-1. W repozytorium: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. Gotowe. Każda zmiana w `client/` na gałęzi `main` publikuje grę sama (workflow „Publish the game”).
-   Pierwszy raz można go uruchomić ręcznie: **Actions → Publish the game → Run workflow**.
-
-Klient łączy się z `https://kc.pointsapp.pl`. Inny adres ustawisz w **Settings → Secrets and variables →
-Actions → Variables** jako `KC_SERVER_URL` (potem uruchom workflow ponownie).
-
-## 2. Domena kc.pointsapp.pl
-
-Mikrus ma publiczny adres **IPv6**, a IPv4 jest współdzielony (bez portów 80 i 443). Sieci szkolne
-i domowe często mają tylko IPv4, więc najpewniej jest postawić domenę za **Cloudflare**:
-
-1. W DNS domeny `pointsapp.pl` dodaj rekord **AAAA**: nazwa `kc`, wartość = adres IPv6 Mikrusa
-   (w panelu Mikrusa albo `ip -6 addr` na serwerze).
-2. Jeśli DNS jest w Cloudflare: włącz pomarańczową chmurkę (Proxied) dla `kc`, a w **SSL/TLS** ustaw tryb **Full**.
-   WebSockety działają w Cloudflare bez dodatkowych ustawień.
-
-Jeśli DNS domeny nie jest w Cloudflare, sam rekord AAAA też zadziała, ale tylko dla urządzeń z IPv6.
-
-## 3. Serwer na Mikrusie
-
-Zaloguj się na serwer i uruchom jako root:
-
-```bash
-git clone https://github.com/tkieron/kingsAndCastles.git /opt/kingscastles-src
-cd /opt/kingscastles-src
-sudo deploy/install.sh
+```
+dziecko ──► Cloudflare ──► Caddy na Mikrusie (HTTPS) ──► serwer gry 127.0.0.1:8080
+                                                           ├─ strona gry (client/dist)
+                                                           ├─ /api/…
+                                                           └─ /ws
 ```
 
-Skrypt:
+Wdraża GitHub Actions (`.github/workflows/deploy.yml`) **po każdym scaleniu do `main`**. Można też uruchomić
+ręcznie: **Actions → Deploy to kc.pointsapp.pl → Run workflow**. Workflow:
 
-- instaluje Javę 21, Mavena i Caddy;
-- buduje serwer;
-- zakłada użytkownika `kingscastles` i usługę `kingscastles` (start po restarcie maszyny);
-- ustawia Caddy dla `kc.pointsapp.pl`: HTTPS sam się odnawia, WebSockety przechodzą.
+1. buduje grę i puszcza wszystkie testy (jak coś nie przechodzi, nic nie jest wdrażane);
+2. odczytuje z Mikrusa jego adres IPv6 i ustawia w Cloudflare rekord **AAAA `kc`** (przez Cloudflare, „pomarańczowa chmurka”);
+3. kopiuje gotową grę na Mikrusa i uruchamia tam `deploy/install.sh` (Java 21, Caddy, usługa `kingscastles`);
+4. sprawdza, czy https://kc.pointsapp.pl odpowiada.
 
-Zapisane pokoje leżą w `/var/lib/kingscastles`, po jednym pliku JSON na pokój. Serwer zajmuje
-około 150–250 MB RAM (limit ustawiony na 256 MB).
+Trwające gry po aktualizacji wracają dokładnie w tym samym miejscu.
 
-Jeśli repozytorium jest prywatne, `git clone` zapyta o login; użyj tokenu z GitHuba
-(Settings → Developer settings → Personal access tokens) z prawem do odczytu repozytorium.
+## Raz na początku: sekrety w GitHubie
 
-## Aktualizacja serwera
+**Settings → Secrets and variables → Actions → New repository secret.** Sekretów nie wklejaj nigdzie indziej.
+
+| Sekret | Co wpisać |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare → My Profile → API Tokens → Create Token → szablon **Edit zone DNS**, Zone Resources: tylko `pointsapp.pl` |
+| `MIKRUS_SSH_KEY` | prywatna część osobnego klucza do wdrażania (niżej) |
+| `MIKRUS_HOST` | adres SSH Mikrusa, np. `srv12.mikr.us` |
+| `MIKRUS_SSH_PORT` | port SSH Mikrusa, np. `10123` |
+| `MIKRUS_KNOWN_HOSTS` | wynik `ssh-keyscan -p <port> <host>`: GitHub połączy się tylko z tym serwerem |
+| `MIKRUS_USER` | (nie trzeba) użytkownik SSH, domyślnie `root` |
+
+Klucz do wdrażania (na swoim komputerze):
 
 ```bash
-cd /opt/kingscastles-src && sudo deploy/install.sh
+ssh-keygen -t ed25519 -f kc-deploy -N "" -C kc-deploy
+cat kc-deploy.pub      # dopisz tę linię na Mikrusie do /root/.ssh/authorized_keys
+cat kc-deploy          # to wklej jako sekret MIKRUS_SSH_KEY, potem usuń oba pliki z komputera
 ```
 
-Skrypt pobiera `main`, buduje i restartuje usługę. Trwające gry wracają dokładnie w tym samym miejscu.
+W Cloudflare dla `pointsapp.pl` ustaw jeszcze **SSL/TLS → Overview → Full (strict)**. W trybie „Flexible”
+strona kręciłaby się w kółko między HTTP i HTTPS.
 
 ## Sprawdzenie
 
-- `https://kc.pointsapp.pl/api/rules` pokazuje zasady gry (JSON);
-- `systemctl status kingscastles` pokazuje, czy usługa działa;
-- `journalctl -u kingscastles -n 100` to ostatnie wpisy z serwera.
+- https://kc.pointsapp.pl to gra, a https://kc.pointsapp.pl/api/rules zasady (JSON);
+- na Mikrusie: `systemctl status kingscastles` i `journalctl -u kingscastles -n 100`.
+
+## Gdy coś nie działa
+
+- **Workflow pisze „Missing repository secrets”**: brakuje sekretu z tabeli wyżej.
+- **„Host key verification failed”**: `MIKRUS_KNOWN_HOSTS` nie pasuje, wygeneruj go ponownie.
+- **„The Cloudflare token cannot see the zone”**: token nie ma dostępu do `pointsapp.pl`.
+- **Usługa nie startuje z błędem `226/NAMESPACE`**: kontener Mikrusa nie pozwala na część zabezpieczeń systemd.
+  Zakomentuj w `deploy/kingscastles.service` linie `ProtectSystem`, `ProtectHome` i `PrivateTmp` i uruchom workflow ponownie.
+- **Strona nie odpowiada zaraz po pierwszym wdrożeniu**: nowy rekord DNS i certyfikat HTTPS potrzebują kilku minut.
+
+## Ustawienia serwera
+
+W `deploy/kingscastles.service` (zmienne środowiskowe):
+
+| Zmienna | Wartość | Co robi |
+|---|---|---|
+| `KC_CLIENT_DIR` | `/opt/kingscastles/client` | skąd serwer podaje stronę gry |
+| `KC_DATA_DIR` | `/var/lib/kingscastles` | zapisane pokoje, jeden plik JSON na pokój |
+| `KC_ALLOWED_ORIGINS` | `https://kc.pointsapp.pl` | skąd wolno łączyć się z API i WebSocketem |
+| `KC_MAX_ROOMS` | `500` | najwięcej pokoi naraz (serwer jest otwarty dla każdego) |
+| `KC_ROOM_IDLE_DAYS` | `14` | pokój nieruszany tyle dni jest usuwany |
+
+Serwer zajmuje około 150–250 MB RAM (limit 256 MB) i słucha tylko na 127.0.0.1, więc z internetu
+dostępny jest wyłącznie przez Caddy.

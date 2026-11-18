@@ -9,7 +9,8 @@ User=kingscastles
 WorkingDirectory=/opt/kingscastles
 Environment=PORT=8080
 Environment=KC_DATA_DIR=/var/lib/kingscastles
-Environment=KC_ALLOWED_ORIGINS=https://tkieron.github.io,https://kc.pointsapp.pl
+Environment=KC_ALLOWED_ORIGINS=https://kc.pointsapp.pl
+Environment=KC_CLIENT_DIR=/opt/kingscastles/client
 # the game is small: 256 MB is plenty for a class or two playing at once
 ExecStart=/opt/kingscastles/java -Xmx256m -XX:+UseSerialGC -jar /opt/kingscastles/server.jar --server.address=127.0.0.1
 Restart=always
@@ -20,6 +21,10 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/kingscastles
 PrivateTmp=true
+# no special powers at all (the port is above 1024)
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
 WantedBy=multi-user.target

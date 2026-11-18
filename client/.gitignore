@@ -2,3 +2,4 @@ node_modules/
 dist/
 public/icon-*.png
 dist-offline/
+e2e/out/

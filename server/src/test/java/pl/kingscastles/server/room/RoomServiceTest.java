@@ -182,4 +182,42 @@ class RoomServiceTest {
         assertEquals("error.notPlaying",
                 assertThrows(GameException.class, () -> s.ready(room.code(), ania.token(), true)).key);
     }
+
+    @Test
+    void theServerKeepsAtMostSoManyRoomsAndForgetsIdleOnes() throws Exception {
+        RoomService s = new RoomService(new RoomStore(dir.toString()), 2, 14);
+        s.loadSavedRooms();
+        Room a = s.create(TWO_CHILDREN_NO_CLOCK);
+        s.create(TWO_CHILDREN_NO_CLOCK);
+        assertEquals("error.serverFull", assertThrows(GameException.class, () -> s.create(TWO_CHILDREN_NO_CLOCK)).key);
+
+        long inFifteenDays = System.currentTimeMillis() + java.util.concurrent.TimeUnit.DAYS.toMillis(15);
+        assertEquals(2, s.removeIdleRooms(inFifteenDays));
+        assertEquals(0, s.roomCount());
+        assertFalse(Files.exists(dir.resolve(a.code() + ".json")), "the saved file goes too");
+        assertNotNull(s.create(TWO_CHILDREN_NO_CLOCK), "there is room again");
+    }
+
+    @Test
+    void aRoomThatIsStillPlayedIsNotForgotten() {
+        RoomService s = new RoomService(new RoomStore(dir.toString()), 10, 14);
+        s.loadSavedRooms();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        long inTenDays = System.currentTimeMillis() + java.util.concurrent.TimeUnit.DAYS.toMillis(10);
+        assertEquals(0, s.removeIdleRooms(inTenDays));
+        assertSame(room, s.room(room.code()));
+    }
+
+    @Test
+    void idleRoomsOnTheDiskAreNotLoadedAfterARestart() throws Exception {
+        RoomService first = service();
+        Room room = first.create(TWO_CHILDREN_NO_CLOCK);
+        Path file = dir.resolve(room.code() + ".json");
+        String old = Files.readString(file).replaceAll("\"updatedAt\":\\d+", "\"updatedAt\":1")
+                .replaceAll("\"createdAt\":\\d+", "\"createdAt\":1");
+        Files.writeString(file, old);
+        RoomService second = service();
+        assertEquals(0, second.roomCount());
+        assertFalse(Files.exists(file));
+    }
 }
