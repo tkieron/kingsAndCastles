@@ -63,10 +63,11 @@ jobs:
               ls -d /usr/lib/jvm/*21* 2>/dev/null | head -1 | sed "s/^/java 21: /" || true
               command -v caddy >/dev/null && echo "caddy: installed" || echo "caddy: not yet (install.sh adds it)"
               ss -ltn 2>/dev/null | awk "NR>1 {print \$4}" | grep -E ":(80|443|8080)$" | sed "s/^/port in use: /" || true
-            '
+            ' || { rc=$?; rm -f ~/.ssh/kc-deploy; echo "::error::SSH failed (exit $rc). 'Permission denied' means the key in MIKRUS_SSH_KEY is not in ~/.ssh/authorized_keys of user ${USER_NAME:-root}"; exit $rc; }
           rm -f ~/.ssh/kc-deploy
 
       - name: Cloudflare token
+        if: ${{ !cancelled() }}
         env:
           CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
