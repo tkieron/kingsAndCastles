@@ -116,3 +116,8 @@ npm run build:offline              # dist-offline/kings-and-castles-offline.html
 The result is a single HTML file that opens straight from the disk (double click), with no internet needed except
 for the web fonts. Any build of the client that includes the engine also plays offline with `?server=local` in the
 page address.
+
+## Deployment
+
+The client is published to GitHub Pages by `.github/workflows/pages.yml`; the server runs on a small VPS behind Caddy.
+Step-by-step instructions (in Polish) are in [`deploy/README.md`](deploy/README.md).

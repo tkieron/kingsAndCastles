@@ -1,0 +1,25 @@
+# systemd service for the Kings & Castles server. Installed by deploy/install.sh.
+[Unit]
+Description=Kings & Castles game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=kingscastles
+WorkingDirectory=/opt/kingscastles
+Environment=PORT=8080
+Environment=KC_DATA_DIR=/var/lib/kingscastles
+Environment=KC_ALLOWED_ORIGINS=https://tkieron.github.io,https://kc.pointsapp.pl
+# the game is small: 256 MB is plenty for a class or two playing at once
+ExecStart=/opt/kingscastles/java -Xmx256m -XX:+UseSerialGC -jar /opt/kingscastles/server.jar --server.address=127.0.0.1
+Restart=always
+RestartSec=5
+# a little sandboxing: the server only writes its saved rooms
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kingscastles
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
