@@ -1,6 +1,8 @@
-# Caddy gets the HTTPS certificate by itself and passes WebSocket connections through.
-# The Java server behind it serves the game page, the API and the WebSocket on one address.
+# The game's site in the existing Caddy of pointsapp (Docker container pointsapp-caddy-1).
+# install.sh puts this block between the BEGIN/END lines in /home/appuser/pointsapp/Caddyfile and reloads Caddy.
+# The Cloudflare Origin certificate already used by pointsapp.pl covers *.pointsapp.pl.
 kc.pointsapp.pl {
+	tls /certs/origin.crt /certs/origin.key
 	encode gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -13,5 +15,5 @@ kc.pointsapp.pl {
 	request_body {
 		max_size 64KB
 	}
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy kingscastles:8080
 }

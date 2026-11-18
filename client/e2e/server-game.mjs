@@ -11,15 +11,24 @@ const url = (process.env.KC_URL ?? 'http://localhost:8080').replace(/\/$/, '') +
 const out = new URL('./out/', import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
+// PW_HOST_RULES (e.g. "MAP kc.pointsapp.pl 127.0.0.1") lets a test copy of the server stand in for the real address
+const hostRules = process.env.PW_HOST_RULES;
+const browser = await chromium.launch({
+  ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
+  ...(hostRules ? { args: [`--host-resolver-rules=${hostRules}`, "--no-proxy-server"] } : {}),
+});
 const problems = [];
 const shot = (page, name) => page.screenshot({ path: out + name + '.png' });
 
 async function open(who) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'pl-PL' });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'pl-PL', ignoreHTTPSErrors: !!hostRules });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => problems.push(`${who}: ${e.message}`));
-  page.on('console', (m) => m.type() === 'error' && problems.push(`${who} console: ${m.text()}`));
+  page.on('console', (m) => {
+    // with a test certificate the service worker cannot be fetched; that is the test setup, not the game
+    if (m.type() !== 'error' || (hostRules && /SSL certificate error/.test(m.text()))) return;
+    problems.push(`${who} console: ${m.text()}`);
+  });
   await page.goto(url);
   return page;
 }

@@ -123,7 +123,7 @@ page address.
 ## Deployment
 
 The Java server also serves the built game page (`KC_CLIENT_DIR=client/dist`), so the whole game lives at one
-address, https://kc.pointsapp.pl. Every change on `main` is tested and deployed to a small VPS (mikr.us) behind Caddy
+address, https://kc.pointsapp.pl. Every change on `main` is tested and deployed to a small VPS (mikr.us), as a Docker container behind the Caddy that already serves pointsapp
 and Cloudflare by `.github/workflows/deploy.yml`. Setup and the secrets it needs (in Polish) are in
 [`deploy/README.md`](deploy/README.md).
 

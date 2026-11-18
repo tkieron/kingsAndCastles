@@ -1,21 +1,30 @@
 # Wdrożenie
 
-Gra działa pod jednym adresem: **https://kc.pointsapp.pl**. Serwer w Javie na Mikrusie podaje stronę gry,
-API i WebSocket, a przed nim stoją Caddy (HTTPS) i Cloudflare (adres IPv4 i IPv6 dla wszystkich).
+Gra działa pod jednym adresem: **https://kc.pointsapp.pl**. Na Mikrusie stoi już pointsapp w Dockerze, a jego Caddy
+trzyma porty 80 i 443. Gra dołącza do tego układu, nie ruszając samego pointsapp:
 
 ```
-dziecko ──► Cloudflare ──► Caddy na Mikrusie (HTTPS) ──► serwer gry 127.0.0.1:8080
-                                                           ├─ strona gry (client/dist)
-                                                           ├─ /api/…
-                                                           └─ /ws
+dziecko ──► Cloudflare (SSL strict) ──► Caddy pointsapp (Docker, certyfikat Origin *.pointsapp.pl)
+                                          ├─ pointsapp.pl  → web / api (bez zmian)
+                                          └─ kc.pointsapp.pl → kontener kingscastles:8080
+                                                                ├─ strona gry, /api/…, /ws
+                                                                └─ zapisane pokoje: /var/lib/kingscastles
 ```
+
+- Kontener **kingscastles** (Java 21) jest w sieci Dockera `pointsapp_default` i nie wystawia żadnego portu na zewnątrz.
+  Działa jako zwykły użytkownik, z systemem plików tylko do odczytu, bez uprawnień specjalnych i z limitem 400 MB RAM.
+- Do `/home/appuser/pointsapp/Caddyfile` wdrożenie dopisuje **jeden blok** `kc.pointsapp.pl` między liniami
+  `# BEGIN kings-and-castles` i `# END kings-and-castles` (wzór: `deploy/Caddyfile`). Przed przeładowaniem sprawdza go
+  `caddy validate`. Jeśli coś jest nie tak, stary plik wraca, a Caddy niczego nie przeładowuje. Kopia poprzedniej wersji
+  leży obok jako `Caddyfile.before-kingscastles`.
+- Jeśli kiedyś nadpiszesz Caddyfile pointsapp z innego miejsca, blok gry zniknie. Wtedy wystarczy uruchomić wdrożenie ponownie.
 
 Wdraża GitHub Actions (`.github/workflows/deploy.yml`) **po każdym scaleniu do `main`**. Można też uruchomić
 ręcznie: **Actions → Deploy to kc.pointsapp.pl → Run workflow**. Workflow:
 
 1. buduje grę i puszcza wszystkie testy (jak coś nie przechodzi, nic nie jest wdrażane);
-2. odczytuje z Mikrusa jego adres IPv6 i ustawia w Cloudflare rekord **AAAA `kc`** (przez Cloudflare, „pomarańczowa chmurka”);
-3. kopiuje gotową grę na Mikrusa i uruchamia tam `deploy/install.sh` (Java 21, Caddy, usługa `kingscastles`);
+2. odczytuje z Mikrusa jego adres IPv6 i ustawia w Cloudflare rekord **AAAA `kc`** (przez Cloudflare, „pomarańczowa chmurka”) oraz SSL „Full (strict)” dla `kc`;
+3. kopiuje gotową grę na Mikrusa i uruchamia tam `deploy/install.sh` (kontener gry i blok w Caddy pointsapp);
 4. sprawdza, czy https://kc.pointsapp.pl odpowiada.
 
 Trwające gry po aktualizacji wracają dokładnie w tym samym miejscu.
@@ -52,7 +61,7 @@ tylko sprawdza sekrety, logowanie SSH, adres IPv6 Mikrusa i token Cloudflare.
 ## Sprawdzenie
 
 - https://kc.pointsapp.pl to gra, a https://kc.pointsapp.pl/api/rules zasady (JSON);
-- na Mikrusie: `systemctl status kingscastles` i `journalctl -u kingscastles -n 100`.
+- na Mikrusie: `docker ps --filter name=kingscastles` i `docker logs --tail 100 kingscastles`.
 
 ## Gdy coś nie działa
 
@@ -61,21 +70,19 @@ tylko sprawdza sekrety, logowanie SSH, adres IPv6 Mikrusa i token Cloudflare.
 - **„The Cloudflare token cannot see the zone”**: token nie ma dostępu do `pointsapp.pl`.
 - **„cannot read Configuration Rules”**: dodaj tokenowi uprawnienie Zone → Config Rules → Edit.
 - **„Permission denied (publickey)”**: publicznej części klucza (`kc-deploy.pub`) nie ma w `/root/.ssh/authorized_keys` na Mikrusie.
-- **Usługa nie startuje z błędem `226/NAMESPACE`**: kontener Mikrusa nie pozwala na część zabezpieczeń systemd.
-  Zakomentuj w `deploy/kingscastles.service` linie `ProtectSystem`, `ProtectHome` i `PrivateTmp` i uruchom workflow ponownie.
+- **„Caddy did not accept the new config”**: blok gry nie przeszedł walidacji, Caddyfile pointsapp został przywrócony bez zmian.
 - **Strona nie odpowiada zaraz po pierwszym wdrożeniu**: nowy rekord DNS i certyfikat HTTPS potrzebują kilku minut.
 
-## Ustawienia serwera
+## Ustawienia gry
 
-W `deploy/kingscastles.service` (zmienne środowiskowe):
+Ustawia je `deploy/install.sh` przy uruchomieniu kontenera:
 
 | Zmienna | Wartość | Co robi |
 |---|---|---|
-| `KC_CLIENT_DIR` | `/opt/kingscastles/client` | skąd serwer podaje stronę gry |
-| `KC_DATA_DIR` | `/var/lib/kingscastles` | zapisane pokoje, jeden plik JSON na pokój |
+| `KC_CLIENT_DIR` | `/app/client` | skąd serwer podaje stronę gry (na Mikrusie `/opt/kingscastles/client`) |
+| `KC_DATA_DIR` | `/data` | zapisane pokoje, jeden plik JSON na pokój (na Mikrusie `/var/lib/kingscastles`) |
 | `KC_ALLOWED_ORIGINS` | `https://kc.pointsapp.pl` | skąd wolno łączyć się z API i WebSocketem |
 | `KC_MAX_ROOMS` | `500` | najwięcej pokoi naraz (serwer jest otwarty dla każdego) |
 | `KC_ROOM_IDLE_DAYS` | `14` | pokój nieruszany tyle dni jest usuwany |
 
-Serwer zajmuje około 150–250 MB RAM (limit 256 MB) i słucha tylko na 127.0.0.1, więc z internetu
-dostępny jest wyłącznie przez Caddy.
+Serwer zajmuje około 150–250 MB RAM (sterta 256 MB, kontener 400 MB).

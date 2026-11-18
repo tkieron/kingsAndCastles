@@ -112,7 +112,7 @@ jobs:
       - name: Copy the game to the server and install it
         run: |
           rm -rf "$RUNNER_TEMP/kc" && mkdir -p "$RUNNER_TEMP/kc/release"
-          cp deploy/install.sh deploy/Caddyfile deploy/kingscastles.service "$RUNNER_TEMP/kc/"
+          cp deploy/install.sh deploy/Caddyfile "$RUNNER_TEMP/kc/"
           cp server/target/server-*.jar "$RUNNER_TEMP/kc/release/server.jar"
           cp -r client/dist "$RUNNER_TEMP/kc/release/client"
           tar -C "$RUNNER_TEMP/kc" -czf "$RUNNER_TEMP/kc.tgz" .
