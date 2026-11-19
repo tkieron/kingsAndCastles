@@ -16,6 +16,15 @@ public class Room {
     Long turnEndsAt;
     ScheduledFuture<?> timer;
     TurnReport lastReport;
+    /** Counts the turn clocks started, so a clock left over from before a pause never ends the new turn. */
+    long clockRun;
+    /** Open live connections (screens) to this room. */
+    int connections;
+    /** Freezes a timed game when nobody has been connected for a while. */
+    ScheduledFuture<?> autoPause;
+    /** Freezing and unfreezing saves the room, so a room may do it only so often (see RoomService.pause). */
+    long pauseWindowStart;
+    int pauseChanges;
 
     Room(RoomRecord record) {
         this.record = record;
@@ -35,6 +44,10 @@ public class Room {
 
     public Long turnEndsAt() {
         return turnEndsAt;
+    }
+
+    public boolean paused() {
+        return record.paused;
     }
 
     public Optional<TurnReport> lastReport() {

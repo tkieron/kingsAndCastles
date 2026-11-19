@@ -48,6 +48,16 @@ Settings (environment variables):
 | `KC_CLIENT_DIR` | (empty) | Folder with the built game page (`client/dist`); the server then serves the game too |
 | `KC_MAX_ROOMS` | `500` | At most this many rooms at once |
 | `KC_ROOM_IDLE_DAYS` | `14` | A room nobody touched for this many days is removed |
+| `KC_PAUSED_ROOM_DAYS` | `30` | A frozen (paused) game is kept this many days instead |
+| `KC_AUTO_PAUSE_SECONDS` | `90` | A game with a turn clock freezes itself when no screen has been connected this long |
+
+### Freezing a game
+
+Any child in the room or the host can freeze a running game (❄ in the top bar). The turn clock stops, the
+game is saved with this turn's orders, and Ready and new orders wait. Pressing Resume gives the turn its full time
+again; children who were ready press Ready once more. A game with a turn clock also freezes itself when no screen
+has been connected for `KC_AUTO_PAUSE_SECONDS`, so nobody's turns run out while everyone is away (a reload is
+shorter than that and changes nothing). A frozen game is kept for `KC_PAUSED_ROOM_DAYS` instead of `KC_ROOM_IDLE_DAYS`.
 
 A saved room keeps only the seed and the children's orders, so after a restart every game is rebuilt
 exactly by replaying them (computer kings decide the same way again).
@@ -64,6 +74,7 @@ exactly by replaying them (computer kings decide the same way again).
 | `GET /api/rooms/{code}/state` | child (`X-Player-Token`) | The game as this child sees it |
 | `POST /api/rooms/{code}/orders` | child | Replaces this turn's orders, returns problems (empty = OK) |
 | `POST /api/rooms/{code}/ready` `{"ready":true}` | child | "I'm done"; the turn ends when every child is ready |
+| `POST /api/rooms/{code}/pause` `{"paused":true}` | child or host | Freezes the game (`false` carries on) |
 
 Errors come back as `400 {"error":"error.key"}`; the client translates the key.
 

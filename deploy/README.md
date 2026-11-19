@@ -84,5 +84,7 @@ Ustawia je `deploy/install.sh` przy uruchomieniu kontenera:
 | `KC_ALLOWED_ORIGINS` | `https://kc.pointsapp.pl` | skąd wolno łączyć się z API i WebSocketem |
 | `KC_MAX_ROOMS` | `500` | najwięcej pokoi naraz (serwer jest otwarty dla każdego) |
 | `KC_ROOM_IDLE_DAYS` | `14` | pokój nieruszany tyle dni jest usuwany |
+| `KC_PAUSED_ROOM_DAYS` | `30` | zamrożona gra czeka tyle dni na powrót graczy |
+| `KC_AUTO_PAUSE_SECONDS` | `90` | gra z limitem czasu tury sama się zamraża, gdy nikt nie jest połączony przez tyle sekund |
 
 Serwer zajmuje około 150–250 MB RAM (sterta 256 MB, kontener 400 MB).

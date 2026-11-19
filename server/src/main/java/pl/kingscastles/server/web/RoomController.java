@@ -43,6 +43,9 @@ public class RoomController {
     public record ReadyRequest(boolean ready) {
     }
 
+    public record PauseRequest(boolean paused) {
+    }
+
     @PostMapping
     public Views.Created create(@RequestBody(required = false) RoomSettings settings) {
         Room room = rooms.create(settings == null ? RoomSettings.defaults() : settings);
@@ -99,6 +102,15 @@ public class RoomController {
     @PostMapping("/{code}/ready")
     public void ready(@PathVariable String code, @RequestHeader(PLAYER) String token, @RequestBody ReadyRequest req) {
         rooms.ready(code, token, req.ready());
+    }
+
+    /** Freezes the game ({"paused":true}) or carries on ({"paused":false}). A child or the host. */
+    @PostMapping("/{code}/pause")
+    public void pause(@PathVariable String code,
+                      @RequestHeader(value = PLAYER, required = false) String token,
+                      @RequestHeader(value = HOST, required = false) String hostToken,
+                      @RequestBody PauseRequest req) {
+        rooms.pause(code, token != null ? token : hostToken, req.paused());
     }
 
     @ExceptionHandler(GameException.class)

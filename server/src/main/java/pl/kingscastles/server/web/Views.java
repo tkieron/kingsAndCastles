@@ -62,7 +62,9 @@ public final class Views {
                         boolean finished,
                         List<String> winners,
                         String winReason,
-                        ReportView report) {
+                        ReportView report,
+                        boolean paused,
+                        String pausedBy) {
     }
 
     /**

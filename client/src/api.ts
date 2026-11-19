@@ -144,6 +144,8 @@ export interface Link {
   orders(orders: Order[]): void;
   ready(ready: boolean): void;
   endTurn(): void;
+  /** Freezes the game (true) or carries on (false). */
+  pause(paused: boolean): void;
   close(): void;
 }
 
@@ -163,6 +165,7 @@ export function connect(seat: Seat, onMessage: (m: ServerMessage) => void, onOnl
     orders: (o) => use((l) => l.orders(o)),
     ready: (r) => use((l) => l.ready(r)),
     endTurn: () => use((l) => l.endTurn()),
+    pause: (p) => use((l) => l.pause(p)),
     close: () => {
       closed = true;
       link?.close();
@@ -220,6 +223,10 @@ export class Connection implements Link {
 
   endTurn(): void {
     this.send({ type: 'endTurn' });
+  }
+
+  pause(paused: boolean): void {
+    this.send({ type: 'pause', paused });
   }
 
   close(): void {

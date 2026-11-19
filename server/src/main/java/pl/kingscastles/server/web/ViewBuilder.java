@@ -77,7 +77,8 @@ public final class ViewBuilder {
         return new Views.State(room.code(), room.record.status, s.turn, s.maxTurns, room.turnEndsAt(),
                 room.record.settings.turnSeconds(), s.foodPrice, me, map(s), kingdoms, settlements, units,
                 treaties, proposals, myOrders, room.ready(), s.finished, List.copyOf(s.winners), s.winReason,
-                room.lastReport().map(r -> report(r, me)).orElse(null));
+                room.lastReport().map(r -> report(r, me)).orElse(null),
+                room.record.paused, room.record.paused ? room.record.pausedBy : null);
     }
 
     static Views.MapView map(GameState s) {

@@ -111,6 +111,10 @@ export interface GameState {
   winners: string[];
   winReason?: string;
   report?: ReportView;
+  /** Frozen: the clock stands still until someone presses "Carry on". */
+  paused?: boolean;
+  /** Who froze it: a kingdom id, "host", or "auto" when everyone had left. */
+  pausedBy?: string;
 }
 
 export interface Problem { orderIndex: number; key: string }
