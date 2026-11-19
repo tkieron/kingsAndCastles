@@ -12,6 +12,8 @@ public class RoomRecord {
 
     public String code;
     public String hostToken;
+    /** The host's return code, for a host who does not play (see {@link ResumeCodes}). */
+    public String hostResumeCode;
     public long seed;
     public long createdAt;
     /** When the room was last saved; rooms nobody touched for a long time are removed. */

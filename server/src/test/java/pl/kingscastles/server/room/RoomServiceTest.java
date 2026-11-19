@@ -376,4 +376,126 @@ class RoomServiceTest {
         assertTrue(room.paused(), "a minute later it works again");
         s.stop();
     }
+
+    // ------------------------------------------------------------------ another device
+
+    @Test
+    void everyChildGetsTheirOwnReturnCodeAndItBringsThemBackOnAnotherDevice() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ania = s.join(room.code(), "Ania");
+        Player bartek = s.join(room.code(), "Bartek");
+        assertNotNull(ania.resumeCode());
+        assertEquals(ResumeCodes.LENGTH, ania.resumeCode().length());
+        assertTrue(ania.resumeCode().chars().allMatch(c -> ResumeCodes.ALPHABET.indexOf(c) >= 0));
+        assertNotEquals(ania.resumeCode(), bartek.resumeCode());
+        assertNotEquals(room.record.hostResumeCode, ania.resumeCode());
+
+        // typed on a phone: small letters, a dash and spaces
+        String typed = " " + ania.resumeCode().substring(0, 4).toLowerCase() + "-" + ania.resumeCode().substring(4) + " ";
+        RoomService.Resumed back = s.resume(room.code(), typed);
+        assertEquals(ania.token(), back.token());
+        assertEquals("fox", back.kingdom());
+        assertNull(back.hostToken(), "a child does not get the host's buttons");
+
+        assertEquals(bartek.token(), s.resume(room.code(), bartek.resumeCode()).token());
+    }
+
+    @Test
+    void theHostsCodeGivesTheHostsScreenAndAHostWhoPlaysNeedsOnlyOneCode() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        RoomService.Resumed host = s.resume(room.code(), room.record.hostResumeCode);
+        assertEquals(room.record.hostToken, host.hostToken());
+        assertNull(host.token());
+
+        Player teacher = s.join(room.code(), "Pani Ola", "", 0, room.record.hostToken);
+        Player stranger = s.join(room.code(), "Bartek", "", 0, "not-the-host");
+        assertTrue(teacher.host());
+        assertFalse(stranger.host(), "a wrong host token is not enough");
+        RoomService.Resumed both = s.resume(room.code(), teacher.resumeCode());
+        assertEquals(teacher.token(), both.token());
+        assertEquals(room.record.hostToken, both.hostToken());
+    }
+
+    @Test
+    void aScreenSeesOnlyItsOwnCodes() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ania = s.join(room.code(), "Ania");
+        s.join(room.code(), "Bartek");
+
+        RoomService.Codes child = s.resumeCodes(room.code(), ania.token(), null);
+        assertEquals(ania.resumeCode(), child.player());
+        assertNull(child.host());
+        RoomService.Codes child2 = s.resumeCodes(room.code(), ania.token(), "guess");
+        assertNull(child2.host(), "a wrong host token shows no host code");
+
+        RoomService.Codes host = s.resumeCodes(room.code(), null, room.record.hostToken);
+        assertEquals(room.record.hostResumeCode, host.host());
+        assertNull(host.player());
+
+        // a host who joined without the host's screen being tied: asking from a screen with both ties them
+        Player host2 = room.record.players.get(0);
+        assertFalse(host2.host());
+        RoomService.Codes both = s.resumeCodes(room.code(), host2.token(), room.record.hostToken);
+        assertEquals(host2.resumeCode(), both.player());
+        assertNull(both.host(), "one code is enough");
+        assertEquals(room.record.hostToken, s.resume(room.code(), host2.resumeCode()).hostToken());
+
+        assertEquals("error.notInRoom", assertThrows(GameException.class, () -> s.resumeCodes(room.code(), "x", null)).key);
+        assertEquals("error.notInRoom", assertThrows(GameException.class, () -> s.resumeCodes(room.code(), null, null)).key);
+    }
+
+    @Test
+    void guessingIsStoppedAfterTenWrongCodesInARoom() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ania = s.join(room.code(), "Ania");
+        for (int i = 0; i < RoomService.RESUME_TRIES_PER_WINDOW; i++) {
+            String wrong = i % 2 == 0 ? "AAAA-AAAA" : "not a code at all";
+            assertEquals("error.badResumeCode", assertThrows(GameException.class, () -> s.resume(room.code(), wrong)).key);
+        }
+        assertEquals("error.tooManyTries", assertThrows(GameException.class, () -> s.resume(room.code(), ania.resumeCode())).key,
+                "after ten wrong codes even the right one waits");
+
+        // another room is not blocked
+        Room other = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ola = s.join(other.code(), "Ola");
+        assertEquals(ola.token(), s.resume(other.code(), ola.resumeCode()).token());
+
+        // fifteen minutes later the room takes codes again
+        room.resumeWindowStart -= RoomService.RESUME_WINDOW_MILLIS + 1;
+        assertEquals(ania.token(), s.resume(room.code(), ania.resumeCode()).token());
+        assertEquals("error.noSuchRoom", assertThrows(GameException.class, () -> s.resume("999999x", ania.resumeCode())).key);
+    }
+
+    @Test
+    void returnCodesStayTheSameAfterARestartAndOldRoomsGetThem() throws Exception {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ania = s.join(room.code(), "Ania");
+        s.start(room.code(), room.record.hostToken);
+        s.stop();
+
+        RoomService again = service();
+        assertEquals(ania.token(), again.resume(room.code(), ania.resumeCode()).token());
+        again.stop();
+
+        // a room saved before return codes existed
+        Path file = dir.resolve(room.code() + ".json");
+        String old = Files.readString(file).replaceAll(",?\\s*\"(resumeCode|hostResumeCode)\"\\s*:\\s*\"[A-Z0-9]+\"", "");
+        assertFalse(old.contains("esumeCode\":\""), old);
+        Files.writeString(file, old);
+        RoomService third = service();
+        Room loaded = third.room(room.code());
+        Player p = loaded.record.players.get(0);
+        assertNotNull(p.resumeCode());
+        assertNotNull(loaded.record.hostResumeCode);
+        assertEquals(ania.token(), third.resume(room.code(), p.resumeCode()).token());
+        third.stop();
+        RoomService fourth = service();
+        assertEquals(p.resumeCode(), fourth.room(room.code()).record.players.get(0).resumeCode(), "the new code was saved");
+        fourth.stop();
+    }
 }

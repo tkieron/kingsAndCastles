@@ -6,6 +6,7 @@ import { defaultKingdomName, kingdomName } from '../game/text';
 import { avatarsOf, avatarSvg, type Who } from '../game/avatars';
 import type { Controller, Rules } from '../types';
 import { castleIcon } from './GameScreen';
+import { formatCode, takeResumeFromAddress } from './AnotherDevice';
 
 const LEVELS: Controller[] = ['HUMAN', 'AI_BEGINNER', 'AI_ADVANCED', 'AI_PRO'];
 const DEFAULT_SEATS: Controller[] = ['HUMAN', 'HUMAN', 'HUMAN', 'AI_PRO', 'AI_BEGINNER', 'AI_ADVANCED', 'AI_ADVANCED'];
@@ -118,6 +119,43 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   who.el,
   h('button', { class: 'btn-ready', type: 'submit' }, t('home.joinButton')));
 
+  // back to a game started on another device: the room code and this child's return code (or the QR link)
+  const fromLink = takeResumeFromAddress();
+  const resumeRoom = h('input', {
+    class: 'input code', inputmode: 'numeric', maxlength: 6, autocomplete: 'off', placeholder: '123456',
+    value: fromLink?.room ?? '', 'aria-label': t('home.code'),
+  }) as HTMLInputElement;
+  const resumeCode = h('input', {
+    class: 'input code', maxlength: 9, autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false',
+    placeholder: 'ABCD-2345', value: fromLink ? formatCode(fromLink.code) : '', 'aria-label': t('home.resumeCode'),
+  }) as HTMLInputElement;
+  const comeBack = async () => {
+    error.textContent = '';
+    try {
+      const room = resumeRoom.value.replace(/\D/g, '');
+      const r = await api.resume(room, resumeCode.value);
+      const seat: Seat = { code: room, token: r.token, hostToken: r.hostToken };
+      saveSeat(seat);
+      go(seat);
+    } catch (err) {
+      fail(err);
+    }
+  };
+  const resume = h('form', {
+    class: 'card-light col gap resume-card',
+    onsubmit: (e: Event) => {
+      e.preventDefault();
+      void comeBack();
+    },
+  },
+  h('h2', {}, t('home.resume')),
+  h('p', { class: 'small muted-dark' }, t('home.resumeHint')),
+  h('div', { class: 'row wrap' },
+    h('label', { class: 'col' }, t('home.code'), resumeRoom),
+    h('label', { class: 'col' }, t('home.resumeCode'), resumeCode)),
+  h('button', { class: 'btn', type: 'submit' }, t('home.resumeButton')));
+  if (fromLink) queueMicrotask(() => void comeBack());
+
   const turnSel = h('select', { class: 'input', 'aria-label': t('home.turnLength') },
     ...TURN_LENGTHS.map((s) => h('option', { value: s, selected: s === 60 }, s ? t('home.seconds', { n: s }) : t('home.noLimit'))));
   const turnsSel = h('select', { class: 'input', 'aria-label': t('home.turns') },
@@ -212,5 +250,5 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
     saved ? h('button', { class: 'btn-ready', onclick: () => go(saved) }, t('home.continue', { code: saved.code })) : null,
     error,
     // offline there is one child on one device: only "play against the computer", nothing to set up for a host
-    h('div', { class: 'home-cards' }, offline ? solo : join, offline ? null : create));
+    h('div', { class: 'home-cards' }, offline ? solo : join, offline ? null : resume, offline ? null : create));
 }

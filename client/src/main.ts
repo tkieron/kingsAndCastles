@@ -56,7 +56,7 @@ async function onMessage(m: ServerMessage): Promise<void> {
   if (m.type === 'state' && !game) {
     clear();
     rules ??= await api.rules();
-    game = new GameScreen(rules, conn!, leave);
+    game = new GameScreen(rules, conn!, leave, seat);
     app.append(game.root);
   }
   if (m.type === 'error' && !game && !lobby) {

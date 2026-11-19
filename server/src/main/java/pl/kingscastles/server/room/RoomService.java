@@ -65,6 +65,9 @@ public class RoomService {
     private final long pausedIdleMillis;
     static final int PAUSES_PER_WINDOW = 10;
     static final long PAUSE_WINDOW_MILLIS = 60_000;
+    /** Wrong return codes allowed in one room per window: a child with typos is fine, guessing 2^40 codes is not. */
+    static final int RESUME_TRIES_PER_WINDOW = 10;
+    static final long RESUME_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(15);
     private final long autoPauseMillis;
 
     /** For tests: generous limits. */
@@ -117,6 +120,7 @@ public class RoomService {
             }
             Room room = new Room(r);
             try {
+                addMissingResumeCodes(r);
                 if (r.status != RoomRecord.Status.LOBBY) {
                     room.game = replay(r);
                 }
@@ -154,6 +158,7 @@ public class RoomService {
         RoomRecord r = new RoomRecord();
         r.code = newCode();
         r.hostToken = UUID.randomUUID().toString();
+        r.hostResumeCode = ResumeCodes.create(random);
         r.seed = random.nextLong();
         r.createdAt = System.currentTimeMillis();
         r.settings = settings;
@@ -175,8 +180,16 @@ public class RoomService {
         return join(code, name, null, 0);
     }
 
-    /** @param realm the kingdom's name chosen by the child; empty keeps the kingdom's own name */
     public Player join(String code, String name, String realm, int avatar) {
+        return join(code, name, realm, avatar, null);
+    }
+
+    /**
+     * @param realm the kingdom's name chosen by the child; empty keeps the kingdom's own name
+     * @param hostToken given when the host joins from their own screen: the child's return code then also brings
+     *                  back the host's buttons. A wrong host token is simply ignored.
+     */
+    public Player join(String code, String name, String realm, int avatar, String hostToken) {
         Room room = room(code);
         String clean = name == null ? "" : name.strip();
         if (clean.isEmpty() || clean.length() > 20) {
@@ -205,7 +218,8 @@ public class RoomService {
             if (seat < 0) {
                 throw new GameException("error.roomFull");
             }
-            p = new Player(UUID.randomUUID().toString(), clean, seat, realmName.isEmpty() ? null : realmName, avatar);
+            p = new Player(UUID.randomUUID().toString(), clean, seat, realmName.isEmpty() ? null : realmName, avatar,
+                    newResumeCode(room.record), hostToken != null && room.isHost(hostToken));
             room.record.players.add(p);
             store.save(room.record);
         }
@@ -484,6 +498,107 @@ public class RoomService {
             log.info("Room {} froze itself: nobody is connected", room.code());
         }
         fire(room, Change.PAUSE);
+    }
+
+    // ------------------------------------------------------------------ another device
+
+    /** What a return code gives back: a child's seat, the host's screen, or both (a host who plays). */
+    public record Resumed(String token, String hostToken, String kingdom) {
+    }
+
+    /** The return codes this screen may show: its child's own, and the host's if this is the host's screen. */
+    public record Codes(String player, String host) {
+    }
+
+    /**
+     * Comes back to a room on another device with a return code. Each room takes at most
+     * {@link #RESUME_TRIES_PER_WINDOW} wrong codes per {@link #RESUME_WINDOW_MILLIS}, then refuses every code
+     * (even a right one) until the window ends, so nobody can try codes one after another.
+     */
+    public Resumed resume(String code, String typed) {
+        Room room = room(code);
+        synchronized (room) {
+            long now = System.currentTimeMillis();
+            if (now - room.resumeWindowStart > RESUME_WINDOW_MILLIS) {
+                room.resumeWindowStart = now;
+                room.resumeFailures = 0;
+            }
+            if (room.resumeFailures >= RESUME_TRIES_PER_WINDOW) {
+                throw new GameException("error.tooManyTries");
+            }
+            String wanted = ResumeCodes.normalize(typed);
+            // every code is compared, so the answer takes as long whether a match comes first or last
+            Player found = null;
+            for (Player p : room.record.players) {
+                if (ResumeCodes.same(p.resumeCode(), wanted) && found == null) {
+                    found = p;
+                }
+            }
+            boolean host = ResumeCodes.same(room.record.hostResumeCode, wanted);
+            if (found == null && !host) {
+                room.resumeFailures++;
+                log.info("Wrong return code in room {} ({} of {})", room.code(), room.resumeFailures, RESUME_TRIES_PER_WINDOW);
+                throw new GameException("error.badResumeCode");
+            }
+            if (found != null) {
+                return new Resumed(found.token(), found.host() ? room.record.hostToken : null, Room.kingdomOfSeat(found.seat()));
+            }
+            return new Resumed(null, room.record.hostToken, null);
+        }
+    }
+
+    /**
+     * @param token     a player token, or null
+     * @param hostToken the host token, or null; a screen with neither valid token gets nothing.
+     *                  A screen holding both (a host who plays) gets one code that brings back both.
+     */
+    public Codes resumeCodes(String code, String token, String hostToken) {
+        Room room = room(code);
+        synchronized (room) {
+            Optional<Player> player = token == null ? Optional.empty() : room.player(token);
+            boolean isHost = hostToken != null && room.isHost(hostToken);
+            if (player.isEmpty() && !isHost) {
+                throw new GameException("error.notInRoom");
+            }
+            if (player.isPresent() && isHost && !player.get().host()) {
+                // joined before the host's screen was tied to a seat: this screen proves both, so tie them now
+                Player p = player.get();
+                room.record.players.set(room.record.players.indexOf(p),
+                        new Player(p.token(), p.name(), p.seat(), p.realm(), p.avatar(), p.resumeCode(), true));
+                store.save(room.record);
+                player = room.player(token);
+            }
+            String host = isHost && player.isEmpty() ? room.record.hostResumeCode : null;
+            return new Codes(player.map(Player::resumeCode).orElse(null), host);
+        }
+    }
+
+    /** Rooms saved before return codes existed get them now. */
+    private void addMissingResumeCodes(RoomRecord r) {
+        boolean changed = false;
+        if (r.hostResumeCode == null) {
+            r.hostResumeCode = ResumeCodes.create(random);
+            changed = true;
+        }
+        for (int i = 0; i < r.players.size(); i++) {
+            if (r.players.get(i).resumeCode() == null) {
+                r.players.set(i, r.players.get(i).withResumeCode(newResumeCode(r)));
+                changed = true;
+            }
+        }
+        if (changed) {
+            store.save(r);
+        }
+    }
+
+    /** A code no one else in the room has (two equal codes in 2^40 are unlikely, but cost nothing to rule out). */
+    private String newResumeCode(RoomRecord r) {
+        while (true) {
+            String c = ResumeCodes.create(random);
+            if (!c.equals(r.hostResumeCode) && r.players.stream().noneMatch(p -> c.equals(p.resumeCode()))) {
+                return c;
+            }
+        }
     }
 
     // ------------------------------------------------------------------ helpers
