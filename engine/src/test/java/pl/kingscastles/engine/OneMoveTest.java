@@ -36,15 +36,65 @@ class OneMoveTest {
     }
 
     @Test
-    void twoOrdersAreOneTooMany() {
+    void aBuildingsMoveMayBuildOnceInEverySettlement() {
         TestWorld w = oneMove();
-        w.kingdom("fox", 100);
+        w.kingdom("fox", 200);
         Settlement castle = w.castle("fox", 2, 2);
         Settlement village = w.village("fox", 6, 2);
+        assertTrue(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Build(castle.id, BuildingType.MARKET),
+                new Order.Build(village.id, BuildingType.MARKET))).isEmpty());
+    }
+
+    @Test
+    void moreOrdersThanSettlementsAreTooMany() {
+        TestWorld w = oneMove();
+        w.kingdom("fox", 300);
+        Settlement castle = w.castle("fox", 2, 2);
+        Settlement village = w.village("fox", 6, 2);
+        w.terrain(3, 3, pl.kingscastles.engine.model.Terrain.HILLS);
         List<Problem> problems = OrderValidator.validate(w.s, "fox", List.of(
                 new Order.Build(castle.id, BuildingType.MARKET),
-                new Order.Build(village.id, BuildingType.MARKET)));
+                new Order.Build(village.id, BuildingType.MARKET),
+                new Order.BuildOnTile(TestWorld.p(3, 3), BuildingType.GOLD_MINE)));
+        assertEquals(List.of("error.onePerSettlement"), keys(problems));
+    }
+
+    @Test
+    void withOneSettlementTwoOrdersAreOneTooMany() {
+        TestWorld w = oneMove();
+        w.kingdom("fox", 300);
+        Settlement castle = w.castle("fox", 2, 2);
+        w.terrain(3, 3, pl.kingscastles.engine.model.Terrain.HILLS);
+        List<Problem> problems = OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Build(castle.id, BuildingType.MARKET),
+                new Order.BuildOnTile(TestWorld.p(3, 3), BuildingType.GOLD_MINE)));
         assertEquals(List.of("error.oneMovePerTurn"), keys(problems));
+    }
+
+    @Test
+    void economyAndDiplomacyStayOneOrderWhateverTheSettlements() {
+        TestWorld w = oneMove();
+        w.kingdom("fox", 100);
+        w.kingdom("owl", 100);
+        w.castle("fox", 2, 2);
+        w.village("fox", 6, 2);
+        assertEquals(List.of("error.oneMovePerTurn"), keys(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.SetTax(TaxRate.HIGH), new Order.TakeLoan()))));
+        assertEquals(List.of("error.oneMovePerTurn"), keys(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.ProposeTreaty("owl", TreatyType.TRADE), new Order.Gift("owl", 5, 0)))));
+    }
+
+    @Test
+    void withoutOrdersPerSettlementAMoveIsOneOrderAgain() {
+        TestWorld w = oneMove();
+        w.s.balance.ordersPerSettlement = 0;
+        w.kingdom("fox", 200);
+        Settlement castle = w.castle("fox", 2, 2);
+        Settlement village = w.village("fox", 6, 2);
+        assertEquals(List.of("error.oneMovePerTurn"), keys(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Build(castle.id, BuildingType.MARKET),
+                new Order.Build(village.id, BuildingType.MARKET)))));
     }
 
     @Test
@@ -114,8 +164,24 @@ class OneMoveTest {
                 new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN),
                 new Order.TakeLoan()))).contains("error.oneKindPerTurn"));
         Settlement village = w.village("fox", 10, 9);
+        // every settlement trains its own army in the same Army move, but only one each
+        assertTrue(OrderValidator.validate(w.s, "fox", List.of(
+                new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN),
+                new Order.Recruit(village.id, pl.kingscastles.engine.model.UnitType.SPEARMAN))).isEmpty());
         assertTrue(keys(OrderValidator.validate(w.s, "fox", List.of(
                 new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN),
-                new Order.Recruit(village.id, pl.kingscastles.engine.model.UnitType.SPEARMAN)))).contains("error.oneMovePerTurn"));
+                new Order.Recruit(castle.id, pl.kingscastles.engine.model.UnitType.SPEARMAN)))).contains("error.oneRecruitPerSettlement"));
+    }
+
+    @Test
+    void gamesFromBeforeLongerGamesKeepTheirOldNumbers() {
+        Balance old = Balance.forVersion(0);
+        assertEquals(0, old.ordersPerSettlement);
+        assertEquals(10, old.goldMineIncome);
+        assertEquals(5, old.palaceInstallments);
+        assertEquals(300, old.economicWinGold);
+        Balance now = Balance.forVersion(Balance.VERSION);
+        assertEquals(1, now.ordersPerSettlement);
+        assertEquals(new Balance().goldMineIncome, now.goldMineIncome);
     }
 }

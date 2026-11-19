@@ -114,9 +114,9 @@ class DiplomacyAndVictoryTest {
     }
 
     @Test
-    void palaceAndThreeHundredGoldWinTheEconomicWay() {
+    void palaceAndNineHundredGoldWinTheEconomicWay() {
         TestWorld w = TestWorld.meadow();
-        Kingdom fox = w.kingdom("fox", 300);
+        Kingdom fox = w.kingdom("fox", 900);
         w.kingdom("owl", 0);
         fox.palaceDone = true;
         w.endTurn();

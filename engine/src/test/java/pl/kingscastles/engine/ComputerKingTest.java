@@ -67,7 +67,8 @@ class ComputerKingTest {
                             .filter(o -> o.category() != Order.Category.ANSWER).toList();
                     long moves = orders.stream().filter(o -> !o.armyStep()).count();
                     long kinds = orders.stream().map(Order::category).distinct().count();
-                    assertTrue(moves <= 1 && kinds <= 1, k.id + " gave " + orders + " in turn " + g.state().turn);
+                    int allowed = orders.isEmpty() ? 1 : OrderValidator.ordersAllowed(g.state(), k.id, orders.get(0).category());
+                    assertTrue(moves <= allowed && kinds <= 1, k.id + " gave " + orders + " in turn " + g.state().turn);
                 }
             }
             g.endTurn();

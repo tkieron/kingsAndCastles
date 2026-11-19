@@ -35,7 +35,8 @@ public final class ComputerKing {
 
     /**
      * Orders for one kingdom this turn, already checked so every one of them is valid. A computer king
-     * plays by the children's rule: answers to offers, plus one move (or {@code actionsPerTurn} moves of one kind).
+     * plays by the children's rule: answers to offers, plus one move of one kind (in a Buildings or Army move,
+     * one order per settlement).
      */
     public static List<Order> orders(GameState s, String kingdomId, Controller level) {
         List<Order> wishes = wishes(s, kingdomId, level);
@@ -57,7 +58,7 @@ public final class ComputerKing {
         if (!moves.isEmpty()) {
             Order.Category kind = moves.get(0).category();
             moves.stream().filter(o -> o.category() == kind && !o.armyStep())
-                    .limit(Math.max(0, s.balance.actionsPerTurn)).forEach(out::add);
+                    .limit(OrderValidator.ordersAllowed(s, kingdomId, kind)).forEach(out::add);
             // an Army move takes every army along
             moves.stream().filter(o -> o.category() == kind && o.armyStep()).forEach(out::add);
         }
@@ -141,16 +142,21 @@ public final class ComputerKing {
             case AI_ADVANCED -> 2 + s.turn / 8;
             default -> 3 + s.turn / 6;
         };
-        if (army.size() < wanted) {
-            Optional<Settlement> castle = s.castleOf(kingdomId);
-            if (castle.isPresent()) {
-                UnitType type = castle.get().buildings.contains(BuildingType.BARRACKS) && level != Controller.AI_BEGINNER
-                        ? (s.turn % 2 == 0 ? UnitType.KNIGHT : UnitType.ARCHER)
-                        : UnitType.SPEARMAN;
-                if (type.cost <= budget) {
-                    out.add(new Order.Recruit(castle.get().id, type));
-                    budget -= type.cost;
-                }
+        // every settlement may train one army in an Army move: the castle first, then the villages
+        int missing = wanted - army.size();
+        List<Settlement> camps = new ArrayList<>(s.settlementsOf(kingdomId));
+        camps.sort(Comparator.comparing((Settlement st) -> !st.castle));
+        for (Settlement camp : camps) {
+            if (missing <= 0) {
+                break;
+            }
+            UnitType type = camp.buildings.contains(BuildingType.BARRACKS) && level != Controller.AI_BEGINNER
+                    ? ((s.turn + camp.id) % 2 == 0 ? UnitType.KNIGHT : UnitType.ARCHER)
+                    : UnitType.SPEARMAN;
+            if (type.cost <= budget) {
+                out.add(new Order.Recruit(camp.id, type));
+                budget -= type.cost;
+                missing--;
             }
         }
 

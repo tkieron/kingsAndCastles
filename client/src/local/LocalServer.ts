@@ -30,7 +30,12 @@ interface RoomRecord {
   pausedBy?: string;
   /** This turn's orders given before the freeze, so they come back after a reload. */
   pausedOrders?: Record<string, Order[]>;
+  /** The engine's Balance.VERSION when the game began; games saved before it was kept have none (0). */
+  rulesVersion?: number;
 }
+
+/** The engine's Balance.VERSION: the rules a new game is played by. */
+const RULES_VERSION = 1;
 
 type Listener = { token?: string; hostToken?: string; send: (m: ServerMessage) => void };
 
@@ -87,7 +92,7 @@ function setupJson(r: RoomRecord): string {
     if (c === 'HUMAN') return { name: 'Computer', controller: r.settings.emptySeatLevel };
     return { name: 'Computer', controller: c };
   });
-  return JSON.stringify({ seed: r.seed, maxTurns: r.settings.maxTurns, seats });
+  return JSON.stringify({ seed: r.seed, maxTurns: r.settings.maxTurns, seats, rulesVersion: r.rulesVersion ?? 0 });
 }
 
 /** Rebuilds the game from its seed and the saved orders, as the server does after a restart. */
@@ -209,7 +214,7 @@ export const localApi = {
   /** One room per device: a new room replaces the old one. */
   async create(settings: RoomSettings): Promise<{ code: string; hostToken: string }> {
     load();
-    if (!TURN_LENGTHS.includes(settings.turnSeconds) || settings.maxTurns < 10 || settings.maxTurns > 30
+    if (!TURN_LENGTHS.includes(settings.turnSeconds) || settings.maxTurns < 10 || settings.maxTurns > 90
       || settings.seats?.length !== 7) {
       throw new LocalError('error.badRequest');
     }
@@ -225,6 +230,7 @@ export const localApi = {
       settings: { ...settings, emptySeatLevel },
       players: [],
       turns: [],
+      rulesVersion: RULES_VERSION,
     };
     save();
     return { code: room.code, hostToken: room.hostToken };

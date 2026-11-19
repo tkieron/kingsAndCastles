@@ -68,8 +68,12 @@ public final class OrderValidator {
             out.add(new Problem(-1, "error.oneKindPerTurn"));
         }
         // an Army move walks or attacks with every army; training one or founding a village counts as the move
-        if (actions.stream().filter(o -> !o.armyStep()).count() > s.balance.actionsPerTurn) {
-            out.add(new Problem(-1, s.balance.actionsPerTurn == 1 ? "error.oneMovePerTurn" : "error.tooManyMoves"));
+        if (!actions.isEmpty()) {
+            int allowed = ordersAllowed(s, kingdomId, actions.get(0).category());
+            if (actions.stream().filter(o -> !o.armyStep()).count() > allowed) {
+                out.add(new Problem(-1, allowed > s.balance.actionsPerTurn ? "error.onePerSettlement"
+                        : allowed == 1 ? "error.oneMovePerTurn" : "error.tooManyMoves"));
+            }
         }
         int available = k.gold + (loan ? s.balance.loanAmount : 0);
         if (gold > available) {
@@ -79,6 +83,18 @@ public final class OrderValidator {
             out.add(new Problem(-1, "error.notEnoughFood"));
         }
         return out;
+    }
+
+    /**
+     * How many counted orders (not walking or attacking) one move of this kind may hold: {@code actionsPerTurn},
+     * or in a Buildings or Army move one per settlement the kingdom owns ({@code ordersPerSettlement}), whichever is more.
+     */
+    public static int ordersAllowed(GameState s, String kingdomId, Order.Category kind) {
+        int base = Math.max(0, s.balance.actionsPerTurn);
+        if (kind == Order.Category.BUILD || kind == Order.Category.ARMY) {
+            return Math.max(base, Math.max(0, s.balance.ordersPerSettlement) * s.settlementsOf(kingdomId).size());
+        }
+        return base;
     }
 
     private static String check(GameState s, Kingdom k, Territory territory, Order o,

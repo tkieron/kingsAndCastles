@@ -6,12 +6,35 @@ package pl.kingscastles.engine;
  * {@link pl.kingscastles.engine.model.BuildingType}. Values follow the game design document.
  */
 public class Balance {
+    /**
+     * The rules a new game is played by. A game saved earlier is replayed from its orders, so it keeps the
+     * rules it started with ({@link #forVersion}); change this number whenever a change here alters replays.
+     */
+    public static final int VERSION = 1;
+
+    /** The numbers a game of this rules version was played with. 0 = before longer games (November 2026). */
+    public static Balance forVersion(int version) {
+        Balance b = new Balance();
+        if (version < 1) {
+            b.ordersPerSettlement = 0;
+            b.goldMineIncome = 10;
+            b.palaceInstallments = 5;
+            b.economicWinGold = 300;
+        }
+        return b;
+    }
+
     // the turn
     /**
      * Orders a kingdom may give in one turn, all of one kind (army, buildings, economy or diplomacy).
      * Answers to treaty offers do not count. One move per turn keeps the game simple for children.
      */
     public int actionsPerTurn = 1;
+    /**
+     * In a Buildings or Army move every settlement (castle or village) may give this many orders, so a rich
+     * kingdom with more settlements has more to spend its gold on. 0 keeps a move to {@link #actionsPerTurn} orders.
+     */
+    public int ordersPerSettlement = 1;
 
     // start
     public int startGold = 100;
@@ -23,7 +46,7 @@ public class Balance {
     // income
     public int castleIncome = 10;
     public int forestGold = 1;
-    public int goldMineIncome = 10;
+    public int goldMineIncome = 5;
     public int marketIncome = 5;
     public int tradeDealIncome = 5;
     public int interestPer100 = 5;
@@ -77,8 +100,8 @@ public class Balance {
 
     // great palace and victory
     public int palaceInstallment = 100;
-    public int palaceInstallments = 5;
-    public int economicWinGold = 300;
+    public int palaceInstallments = 15;
+    public int economicWinGold = 900;
     public int militaryWinKingdoms = 4;
 
     // absent players
