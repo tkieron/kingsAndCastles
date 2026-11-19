@@ -65,6 +65,7 @@ jobs:
               command -v caddy >/dev/null && echo "caddy: installed" || echo "caddy: not yet (install.sh adds it)"
               ss -ltnpH 2>/dev/null | awk "{print \$4, \$6}" | grep -E ":(80|443|8080) " | sed "s/^/port in use: /" || true
               for s in nginx apache2 caddy traefik haproxy docker; do systemctl is-active --quiet "$s" 2>/dev/null && echo "running service: $s"; done
+              for h in pointsapp.pl www.pointsapp.pl kc.pointsapp.pl; do echo "via local Caddy $h: $(curl -sk -o /dev/null -w "%{http_code}" --resolve $h:443:127.0.0.1 https://$h/)"; done
               for p in 8090; do echo "local port $p: $(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$p/)"; done
               docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null | sed "s/^/status: /" || true
               if command -v docker >/dev/null; then
@@ -99,6 +100,9 @@ jobs:
           [ -n "$zone" ] && echo "ok: the token sees $ZONE" || { echo "::error::the token cannot see $ZONE"; exit 1; }
           r="$(curl -sS -H "Authorization: Bearer $CF" "$api/zones/$zone/dns_records?name=$DOMAIN")"
           echo "$r" | jq -e '.success' >/dev/null && echo "ok: the token can read DNS records" || { echo "::error::cannot read DNS records"; exit 1; }
+          for n in "$ZONE" "www.$ZONE"; do
+            echo "records for $n: $(curl -sS -H "Authorization: Bearer $CF" "$api/zones/$zone/dns_records?name=$n" | jq -r '[.result[] | .type + " " + .content + (if .proxied then " (proxied)" else "" end) + " modified " + .modified_on] | join("; ")')"
+          done
           echo "records for $DOMAIN now: $(echo "$r" | jq -r '[.result[] | .type + (if .proxied then " (proxied)" else "" end)] | join(", ") | if . == "" then "none yet" else . end')"
 
       - name: Cloudflare SSL rule
