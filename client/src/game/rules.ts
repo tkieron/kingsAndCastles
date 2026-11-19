@@ -112,6 +112,17 @@ export function buildingCost(rules: Rules, type: BuildingType): number {
   return rules.buildings.find((b) => b.type === type)?.cost ?? 0;
 }
 
+/**
+ * How many orders one move of this kind may hold, besides walking and attacking (the engine's
+ * OrderValidator.ordersAllowed): in a Buildings or Army move one per settlement the child owns.
+ */
+export function ordersAllowed(rules: Rules, state: GameState, kind: string | undefined): number {
+  const base = Math.max(0, rules.balance.actionsPerTurn ?? 1);
+  if (kind !== 'BUILD' && kind !== 'ARMY') return base;
+  const per = Math.max(0, rules.balance.ordersPerSettlement ?? 0);
+  return Math.max(base, per * state.settlements.filter((x) => x.owner === state.me).length);
+}
+
 /** Gold an order needs this turn; it is put aside when the turn ends. */
 export function goldCost(order: Order, rules: Rules, state: GameState): number {
   switch (order.order) {

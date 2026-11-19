@@ -26,6 +26,8 @@ public class RoomRecord {
     public String pausedBy;
     /** This turn's orders given before the freeze, so they survive a restart during the break. */
     public Map<String, List<Order>> pausedOrders;
+    /** The game rules the room was opened with ({@code Balance.VERSION}); rooms saved before it was kept have 0. */
+    public int rulesVersion;
 
     public static final String BY_HOST = "host";
     public static final String BY_NOBODY = "auto";

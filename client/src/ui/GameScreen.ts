@@ -4,9 +4,9 @@ import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
 import {
   buildOptions, buildingCost, distance, goldCost, improvementAt, key, nearestVillageSpot, neighbours, payback, reachable, samePos,
-  terrainAt, territory, unitRule, villageSpot,
+  ordersAllowed, terrainAt, territory, unitRule, villageSpot,
 } from '../game/rules';
-import { advise, armyStep, kindOf, KINDS, moveOf, saving, type Kind, type Step } from '../game/advisor';
+import { addToMove, advise, countedOrders, kindOf, KINDS, moveOf, saving, type Kind, type Step } from '../game/advisor';
 import { inkOn } from '../game/sprites';
 import { greeted, INTRO, markGreeted, TOUR, Tutorial, tutorialSeen } from './Tutorial';
 import { grosikSvg } from './grosik';
@@ -119,8 +119,8 @@ export class GameScreen {
       kingdom: kingdomName(me.id),
       peace: (b.peaceTurns ?? 5) + 1,
       castles: b.militaryWinKingdoms ?? 4,
-      gold: b.economicWinGold ?? 300,
-      turns: this.state?.maxTurns ?? 20,
+      gold: b.economicWinGold ?? 900,
+      turns: this.state?.maxTurns ?? 60,
       name: me.playerName ?? '',
       title: t(avatarWho(me.avatar) === 'queen' ? 'intro.queen' : 'intro.king'),
     }, () => {
@@ -206,6 +206,16 @@ export class GameScreen {
     return !!this.state?.me && this.state.ready.includes(this.state.me);
   }
 
+  /** How many orders a move of this kind may hold this turn: in a Buildings or Army move, one per settlement. */
+  private allowed(kind: string | undefined = this.kind): number {
+    return this.state ? ordersAllowed(this.rules, this.state, kind) : 1;
+  }
+
+  /** Places still free in this turn's move (0 when the move is full or not chosen yet). */
+  private placesLeft(): number {
+    return Math.max(0, this.allowed() - countedOrders(this.draft).length);
+  }
+
   private reserved(): number {
     return this.draft.reduce((sum, o) => sum + goldCost(o, this.rules, this.state!), 0);
   }
@@ -229,20 +239,17 @@ export class GameScreen {
 
   /**
    * Replaces the orders that match `same` with `order` (or just removes them) and sends the list.
-   * One turn is one move: a new move takes the place of the old one. Answers to offers stay.
+   * One turn is one move: a move of another kind takes the place of the old one. Answers to offers stay.
+   * In a Buildings or Army move every settlement may give one order.
    */
   private setOrder(same: (o: Order) => boolean, order?: Order): void {
     if (this.amReady()) return;
     this.draft = this.draft.filter((o) => !same(o));
-    if (order && kindOf(order) !== 'ANSWER') {
-      // a move of another kind replaces everything; within an Army move every army may walk or attack,
-      // but training an army or founding a village is the one counted move
+    if (order) {
       const kind = kindOf(order);
-      this.draft = this.draft.filter((o) => kindOf(o) === 'ANSWER'
-        || (kindOf(o) === kind && (armyStep(o) || armyStep(order))));
-      this.kind = kind as Kind;
+      this.draft = addToMove(this.draft, order, this.allowed(kind));
+      if (kind !== 'ANSWER') this.kind = kind;
     }
-    if (order) this.draft.push(order);
     // an order was given for the clicked thing: close its choices, so Grosik's next step is what the child sees
     if (order && CLOSES.has(order.order)) this.selection = null;
     this.sync();
@@ -368,11 +375,18 @@ export class GameScreen {
     if (!this.kind || this.amReady()) return undefined;
     const move = moveOf(this.draft);
     if (!move) return this.steps.find((x) => x.move === this.kind);
+    const full = this.placesLeft() === 0;
+    if (this.kind === 'BUILD') {
+      // a settlement or hill that has no order yet, while the move has room
+      if (full) return undefined;
+      return this.steps.find((x) => x.move === 'BUILD' && !this.draft.some((o) =>
+        (x.target.kind === 'settlement' && o.order === 'build' && o.settlementId === x.target.id)
+        || (x.target.kind === 'tile' && o.order === 'buildOnTile' && samePos(o.pos, x.target.pos))));
+    }
     if (this.kind !== 'ARMY') return undefined;
     // an Army move: the next army without orders
-    const counted = this.draft.some((o) => kindOf(o) === 'ARMY' && !armyStep(o));
     return this.steps.find((x) => x.move === 'ARMY' && x.target.kind === 'unit'
-      && !(counted && x.id.startsWith('found-'))
+      && !(full && x.id.startsWith('found-'))
       && !this.draft.some((o) => 'unitId' in o && x.target.kind === 'unit' && o.unitId === x.target.id));
   }
 
@@ -386,7 +400,7 @@ export class GameScreen {
     this.kind = k;
     this.tab = 'move';
     if (move && kindOf(move) !== k) {
-      this.draft = this.draft.filter((o) => o !== move);
+      this.draft = this.draft.filter((o) => kindOf(o) === 'ANSWER' || kindOf(o) === k);
       this.sync();
     } else {
       this.render();
@@ -816,7 +830,19 @@ export class GameScreen {
       h('div', { class: 'opt-sub' }, noBarracks ? t('sel.needsBarracks') : short > 0 ? t('sel.short', { n: short })
         : `${t(`ud.${u.type}`)} · −${u.upkeep}/${t('w.turn').toLowerCase()}`)));
     }
-    return h('div', { class: 'recruit' }, h('div', { class: 'label dark' }, t('sel.recruit')), units);
+    // archers, knights and rams need barracks here: one click to build them (a Buildings move)
+    const canBarracks = !st.buildings.includes('BARRACKS') && this.rules.units.some((u) => u.needsBarracks)
+      && buildOptions(this.rules, s, st, this.me()?.palaceDone ?? false).includes('BARRACKS');
+    const barracks = canBarracks ? h('button', {
+      class: 'btn small', disabled: locked,
+      onclick: () => {
+        this.chooseKind('BUILD');
+        this.selection = { kind: 'settlement', id: st.id };
+        this.render();
+      },
+    }, `🏗 ${t('sel.buildBarracks', { cost: buildingCost(this.rules, 'BARRACKS') })}`) : null;
+    return h('div', { class: 'recruit' }, h('div', { class: 'label dark' }, t('sel.recruit')), units,
+      barracks ? h('p', { class: 'small' }, t('sel.barracksWhy')) : null, barracks);
   }
 
   /** On a thing that needs another kind of move: say so, with buttons that switch to it. */
@@ -1121,11 +1147,13 @@ export class GameScreen {
     } else if (move) {
       const moves = this.draft.filter((o) => kindOf(o) !== 'ANSWER');
       const next = this.idea();
+      const left = this.placesLeft();
       append(body,
         h('div', { class: 'quest-label' }, t('w.yourMove')),
-        h('div', { class: 'quest-now' }, `✔ ${moves.length > 1
-          ? t('turn.doneMany', { n: moves.length }) : t('turn.done', { move: orderText(move, s) })}`),
+        h('div', { class: 'quest-now' }, `✔ ${moves.length <= 1 ? t('turn.done', { move: orderText(move, s) })
+          : this.kind === 'BUILD' ? t('turn.doneManyBuild', { n: moves.length }) : t('turn.doneMany', { n: moves.length })}`),
         h('div', { class: 'quest-why' }, this.kind === 'ARMY' ? t('turn.doneArmy') : t('turn.doneWhy')),
+        left > 0 ? h('div', { class: 'quest-why' }, t('turn.placesLeft', { n: left })) : null,
         h('div', { class: 'row wrap' },
           next ? h('button', { class: 'link', onclick: () => this.showStep(next) }, `★ ${next.text}`) : null,
           h('button', { class: 'link', onclick: () => this.setOrder((o) => kindOf(o) !== 'ANSWER') }, t('turn.changeMove'))));
@@ -1338,7 +1366,7 @@ export class GameScreen {
         h('span', { class: 'goal-how' }, t('goal.how'))),
       h('ul', {},
         h('li', {}, t('goal.way1')),
-        h('li', {}, t('goal.way2', { gold: b.economicWinGold ?? 300 })),
+        h('li', {}, t('goal.way2', { gold: b.economicWinGold ?? 900 })),
         h('li', {}, t('goal.way3', { castles: b.militaryWinKingdoms ?? 4 }))),
       h('ol', { class: 'ranking light' }, ...ranking.map((k) => h('li', { class: k.id === me.id ? 'me-row' : '' },
         h('span', { class: 'dot', style: `background:${k.color}` }), `${kingdomName(k.id)} – ${k.prestige}`))));

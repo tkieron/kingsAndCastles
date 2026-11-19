@@ -157,6 +157,7 @@ public class RoomService {
         r.seed = random.nextLong();
         r.createdAt = System.currentTimeMillis();
         r.settings = settings;
+        r.rulesVersion = Balance.VERSION;
         Room room = new Room(r);
         rooms.put(r.code, room);
         store.save(r);
@@ -522,7 +523,7 @@ public class RoomService {
                 seats.add(new Game.Seat("Computer", plan.get(i)));
             }
         }
-        return new Game.Setup(r.seed, r.settings.maxTurns(), seats, Controller.AI_BEGINNER, new Balance());
+        return new Game.Setup(r.seed, r.settings.maxTurns(), seats, Controller.AI_BEGINNER, Balance.forVersion(r.rulesVersion));
     }
 
     /** Rebuilds a game from its seed and the children's saved orders. */

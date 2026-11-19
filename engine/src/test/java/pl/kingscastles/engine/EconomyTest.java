@@ -64,8 +64,8 @@ class EconomyTest {
         w.s.map.tile(3, 3).improvement = BuildingType.GOLD_MINE;
 
         w.endTurn();
-        // castle 10 + tax 6 + forests 2 + mine 10 + market 5
-        assertEquals(33, fox.gold);
+        // castle 10 + tax 6 + forests 2 + mine 5 + market 5
+        assertEquals(28, fox.gold);
     }
 
     @Test

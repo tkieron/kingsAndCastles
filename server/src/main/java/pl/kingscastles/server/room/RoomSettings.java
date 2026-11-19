@@ -8,7 +8,7 @@ import java.util.List;
  * What the host chooses in the lobby.
  *
  * @param turnSeconds 30, 60, 90, 120, 180, or 0 for "no limit" (the turn ends when everyone is ready)
- * @param maxTurns    10 to 30
+ * @param maxTurns    10 to 90 (the lobby offers 30 to 90; shorter games saved earlier still load)
  * @param seats       seven entries in kingdom order: HUMAN = a seat for a child, or a computer level.
  *                    A child seat nobody took is played by the computer at {@code emptySeatLevel}.
  * @param emptySeatLevel computer level for child seats left empty when the game starts
@@ -16,13 +16,15 @@ import java.util.List;
 public record RoomSettings(int turnSeconds, int maxTurns, List<Controller> seats, Controller emptySeatLevel) {
 
     public static final List<Integer> TURN_LENGTHS = List.of(0, 30, 60, 90, 120, 180);
+    public static final int MIN_TURNS = 10;
+    public static final int MAX_TURNS = 90;
 
     public RoomSettings {
         if (!TURN_LENGTHS.contains(turnSeconds)) {
             throw new IllegalArgumentException("Turn length must be one of " + TURN_LENGTHS);
         }
-        if (maxTurns < 10 || maxTurns > 30) {
-            throw new IllegalArgumentException("A game has 10 to 30 turns");
+        if (maxTurns < MIN_TURNS || maxTurns > MAX_TURNS) {
+            throw new IllegalArgumentException("A game has " + MIN_TURNS + " to " + MAX_TURNS + " turns");
         }
         if (seats == null || seats.size() != 7) {
             throw new IllegalArgumentException("Seven seats, one per kingdom");
@@ -34,7 +36,7 @@ public record RoomSettings(int turnSeconds, int maxTurns, List<Controller> seats
     }
 
     public static RoomSettings defaults() {
-        return new RoomSettings(60, 20, List.of(
+        return new RoomSettings(60, 60, List.of(
                 Controller.HUMAN, Controller.HUMAN, Controller.HUMAN,
                 Controller.AI_PRO, Controller.AI_BEGINNER, Controller.AI_ADVANCED, Controller.AI_ADVANCED),
                 Controller.AI_BEGINNER);

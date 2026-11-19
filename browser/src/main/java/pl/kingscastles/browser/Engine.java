@@ -67,6 +67,7 @@ public final class Engine {
     static Map<String, Object> balance(Balance b) {
         return Json.obj(
                 "actionsPerTurn", b.actionsPerTurn,
+                "ordersPerSettlement", b.ordersPerSettlement,
                 "startGold", b.startGold,
                 "startFood", b.startFood,
                 "startCastleFamilies", b.startCastleFamilies,
@@ -136,8 +137,10 @@ public final class Engine {
             seats.add(new Game.Seat((String) seat.get("name"), Controller.valueOf((String) seat.get("controller"))));
         }
         long seed = (long) num(m.get("seed"));
+        // a game saved before the rules version was kept has none: version 0
+        int rules = m.get("rulesVersion") == null ? 0 : (int) num(m.get("rulesVersion"));
         game = Game.create(new Game.Setup(seed, (int) num(m.get("maxTurns")), seats, Controller.AI_BEGINNER,
-                new Balance()));
+                Balance.forVersion(rules)));
         lastReport = null;
     }
 

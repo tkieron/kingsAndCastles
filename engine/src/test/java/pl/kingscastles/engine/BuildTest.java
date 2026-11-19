@@ -75,11 +75,12 @@ class BuildTest {
     }
 
     @Test
-    void greatPalaceIsPaidInFiveInstallments() {
+    void greatPalaceIsPaidInFifteenInstallments() {
         TestWorld w = TestWorld.meadow();
-        Kingdom fox = w.kingdom("fox", 1000);
+        Kingdom fox = w.kingdom("fox", 3000);
         Settlement castle = w.castle("fox", 5, 5);
-        for (int i = 0; i < 5; i++) {
+        assertEquals(15, w.s.balance.palaceInstallments);
+        for (int i = 0; i < 15; i++) {
             assertFalse(fox.palaceDone);
             w.order("fox", new Order.Build(castle.id, BuildingType.GREAT_PALACE));
             w.endTurn();

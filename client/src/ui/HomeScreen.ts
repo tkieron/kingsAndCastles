@@ -10,6 +10,9 @@ import { castleIcon } from './GameScreen';
 const LEVELS: Controller[] = ['HUMAN', 'AI_BEGINNER', 'AI_ADVANCED', 'AI_PRO'];
 const DEFAULT_SEATS: Controller[] = ['HUMAN', 'HUMAN', 'HUMAN', 'AI_PRO', 'AI_BEGINNER', 'AI_ADVANCED', 'AI_ADVANCED'];
 const TURN_LENGTHS = [0, 30, 60, 90, 120, 180];
+/** How long a game can be, in turns. The server takes 10 to 90 (older rooms were shorter). */
+const TURN_COUNTS = [30, 45, 60, 75, 90];
+const DEFAULT_TURNS = 60;
 
 /**
  * Who the child is: their name (needed), boy or girl (needed: Grosik then says "królu" or "królowo"),
@@ -121,7 +124,7 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   const turnSel = h('select', { class: 'input', 'aria-label': t('home.turnLength') },
     ...TURN_LENGTHS.map((s) => h('option', { value: s, selected: s === 60 }, s ? t('home.seconds', { n: s }) : t('home.noLimit'))));
   const turnsSel = h('select', { class: 'input', 'aria-label': t('home.turns') },
-    ...[10, 15, 20, 25, 30].map((n) => h('option', { value: n, selected: n === 20 }, String(n))));
+    ...TURN_COUNTS.map((n) => h('option', { value: n, selected: n === DEFAULT_TURNS }, String(n))));
   const seatSels = DEFAULT_SEATS.map((c, i) => h('select', { class: 'input', 'aria-label': `${t('lobby.seatKind')} ${i + 1}` },
     ...LEVELS.map((l) => h('option', { value: l, selected: l === c }, t(`ctl.${l}`)))));
   const emptySel = h('select', { class: 'input', 'aria-label': t('lobby.emptyLevel') },
@@ -164,7 +167,7 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   const soloTurn = h('select', { class: 'input', 'aria-label': t('home.turnLength') },
     ...TURN_LENGTHS.map((s) => h('option', { value: s, selected: s === 0 }, s ? t('home.seconds', { n: s }) : t('home.noLimit'))));
   const soloTurns = h('select', { class: 'input', 'aria-label': t('home.turns') },
-    ...[10, 15, 20, 25, 30].map((n) => h('option', { value: n, selected: n === 20 }, String(n))));
+    ...TURN_COUNTS.map((n) => h('option', { value: n, selected: n === DEFAULT_TURNS }, String(n))));
   const soloLevel = h('select', { class: 'input', 'aria-label': t('home.soloLevel') },
     ...LEVELS.slice(1).map((l) => h('option', { value: l, selected: l === 'AI_BEGINNER' }, t(`ctl.${l}`))));
   const solo = h('form', {

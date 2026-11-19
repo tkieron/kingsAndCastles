@@ -32,6 +32,31 @@ export function armyStep(o: Order): boolean {
   return o.order === 'move' || o.order === 'attack';
 }
 
+/**
+ * Puts a new order into this turn's move. A move of another kind is taken back, because one turn is one move.
+ * Within the move: every army may walk or attack, and in a Buildings or Army move each settlement may give one
+ * order (`allowed` in all, see rules.ordersAllowed); past that the oldest order makes room for the new one.
+ */
+export function addToMove(draft: Order[], order: Order, allowed: number): Order[] {
+  const kind = kindOf(order);
+  if (kind === 'ANSWER') return [...draft, order];
+  let out = draft.filter((o) => kindOf(o) === 'ANSWER' || kindOf(o) === kind);
+  if (!armyStep(order)) {
+    const counted = out.filter((o) => kindOf(o) !== 'ANSWER' && !armyStep(o));
+    const extra = counted.length + 1 - Math.max(1, allowed);
+    if (extra > 0) {
+      const drop = new Set(counted.slice(0, extra));
+      out = out.filter((o) => !drop.has(o));
+    }
+  }
+  return [...out, order];
+}
+
+/** Orders in this move that use up one of its places (everything but walking and attacking, and answers). */
+export function countedOrders(draft: Order[]): Order[] {
+  return draft.filter((o) => kindOf(o) !== 'ANSWER' && !armyStep(o));
+}
+
 /** This turn's move, if the child has chosen it already. */
 export function moveOf(draft: Order[]): Order | undefined {
   return draft.find((o) => kindOf(o) !== 'ANSWER');
@@ -122,7 +147,7 @@ export function advise(s: GameState, rules: Rules): Step[] {
       id: 'mine',
       move: 'BUILD',
       text: t('adv.mine', { cost: buildingCost(rules, 'GOLD_MINE') }),
-      why: t('adv.why.mine', { n: rules.balance.goldMineIncome ?? 10 }),
+      why: t('adv.why.mine', { n: rules.balance.goldMineIncome ?? 5 }),
       target: { kind: 'tile', pos: hills, building: 'GOLD_MINE' },
     }, buildingCost(rules, 'GOLD_MINE'));
   }
@@ -143,6 +168,8 @@ export function advise(s: GameState, rules: Rules): Step[] {
   for (const v of villages) buildIn(v, 'MARKET', t('adv.why.market', { n: rules.balance.marketIncome ?? 5 }));
   if (s.turn > (rules.balance.peaceTurns ?? 5)) buildIn(castle, 'GREAT_PALACE', t('adv.why.palace'));
   buildIn(castle, 'TREASURY', t('adv.why.treasury'));
+  // with gold to spare: barracks open the archers, knights and rams
+  if (free >= 150) buildIn(castle, 'BARRACKS', t('adv.why.barracks'));
   for (const v of villages) {
     if (v.families >= v.capacity) buildIn(v, 'INN', t('adv.why.inn'));
   }
