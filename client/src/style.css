@@ -397,3 +397,47 @@ h2 { font-size: 22px; }
 .who-pick { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; padding: 8px 10px; }
 .who-pick svg { border: 2px solid var(--ink); }
 .col[hidden] { display: none; }
+
+/* ------------------------------------------------------------ folded top bar and right panel */
+.topbar.compact { min-height: 0; padding: 4px 12px; gap: 14px; flex-wrap: wrap; }
+.topbar.compact .logo svg { width: 26px; height: 26px; }
+.topbar.compact .big-num { font-size: 15px; font-family: var(--body); }
+.mini { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; white-space: nowrap; }
+.mini b { font-weight: 800; }
+.mini svg { width: 20px; height: 20px; }
+.me-mini { gap: 6px; }
+.me-mini .chip-avatar { margin: 0; }
+.spacer { flex: 1; }
+.btn.fold { white-space: nowrap; }
+.panel-fold { align-self: flex-end; margin: -6px -6px 0 0; }
+.panel.closed { width: 72px; padding: 8px 6px; align-items: stretch; }
+.strip { display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; }
+.strip-open { width: 100%; font-size: 18px; }
+.strip-item {
+  width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px;
+  background: var(--card); border: 2px solid var(--ink); color: var(--text); cursor: pointer; font: inherit; font-size: 18px;
+}
+.strip-item b { font-size: 14px; }
+.strip-item .chip-avatar { margin: 0; }
+.strip-item:hover, .strip-open:hover { border-color: var(--gold-light); }
+.btn-ready.strip-end { width: 100%; font-size: 26px; padding: 8px 0; }
+@media (max-width: 900px) {
+  .topbar.compact { gap: 8px 12px; padding: 4px 8px; }
+  .topbar.compact .me-mini b, .fold-text, .topbar.compact .logo, .season-text { display: none; }
+  .topbar.compact { gap: 6px 10px; }
+  .mini { font-size: 14px; }
+  .btn.fold { padding: 4px 8px; }
+}
+
+/* from turn 2: the four kinds of move as a row of small icon buttons */
+.quest-now.small-now { font-size: 17px; }
+.kinds.small { grid-template-columns: repeat(4, minmax(0, max-content)); gap: 6px; margin: 4px 0 2px; }
+.kinds.small .kind-btn { flex-direction: row; gap: 6px; padding: 5px 10px; }
+.kinds.small .kind-icon { font-size: 20px; }
+.kinds.small .kind-name { font-size: 15px; }
+.kinds.small .kind-star { font-size: 14px; }
+@media (max-width: 600px) {
+  .kinds.small { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kinds.small .kind-btn { flex-direction: column; gap: 0; padding: 4px 2px; }
+  .kinds.small .kind-name { font-size: 11px; }
+}

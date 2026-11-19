@@ -67,6 +67,13 @@ export class GameScreen {
   /** Tabs the child has opened, so a tab that appears later can say "New!" until then. */
   private readonly seenTabs = new Set<Tab>(['move', 'ledger', 'chronicle']);
   private blink = false;
+  /** Field size the child chose with the zoom buttons; the map grows past it to fill the free width. */
+  private zoomBase = 33;
+  private readonly resizer = new ResizeObserver(() => this.fitMap());
+  /** The top bar: folded to one slim row of icons (the default), or the full bar with all seven kingdoms. */
+  private barOpen = pref('kc.barOpen', false);
+  /** The right panel on a computer: open (full, as before) or folded to a narrow strip of icons. */
+  private panelOpen = pref('kc.panelOpen', true);
 
   constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void) {
     this.map = new MapCanvas((p) => this.clickMap(p));
@@ -80,6 +87,7 @@ export class GameScreen {
     window.addEventListener('keydown', this.onKey);
     this.root.append(this.header, h('div', { class: 'game-body' }, this.board, this.panel));
     this.map.setFieldSize(33);
+    this.resizer.observe(this.mapBox);
     this.ticker = window.setInterval(() => this.tick(), 500);
   }
 
@@ -89,6 +97,7 @@ export class GameScreen {
 
   destroy(): void {
     window.clearInterval(this.ticker);
+    this.resizer.disconnect();
     window.removeEventListener('keydown', this.onKey);
     this.tutorial?.close();
     this.summary?.remove();
@@ -149,6 +158,7 @@ export class GameScreen {
             if (old && this.me()) this.showSummary(old);
           }
         }
+        if (before === undefined) this.fitMap();
         if (before === undefined && this.me()) this.centreOnCastle();
         this.render();
         // Grosik greets the ruler at the start of every new game (and the first time ever, whenever they come in)
@@ -247,7 +257,20 @@ export class GameScreen {
   }
 
   private zoom(delta: number): void {
-    this.map.setFieldSize(this.map.fieldSize() + delta);
+    this.zoomBase = Math.max(22, Math.min(55, this.map.fieldSize() + delta));
+    this.fitMap();
+  }
+
+  /**
+   * The map always fills the width it has: when the panel folds or the window grows, the fields get bigger
+   * (in steps of 11 px, so the pixel art stays sharp). The zoom buttons still work above that size.
+   */
+  private fitMap(): void {
+    const cols = this.state?.map.width;
+    const w = this.mapBox.clientWidth;
+    const fit = cols && w ? Math.min(55, Math.ceil(w / cols / 11) * 11) : 0;
+    const size = Math.max(this.zoomBase, fit);
+    if (size !== this.map.fieldSize()) this.map.setFieldSize(size);
   }
 
   private centreOnCastle(): void {
@@ -364,7 +387,10 @@ export class GameScreen {
     } else {
       this.render();
     }
-    if (k === 'ECONOMY' || k === 'DIPLOMACY') this.bringIntoView(this.panel.querySelector<HTMLElement>('.tab-body'));
+    if (k === 'ECONOMY' || k === 'DIPLOMACY') {
+      this.openPanel();
+      this.bringIntoView(this.panel.querySelector<HTMLElement>('.tab-body'));
+    }
   }
 
   /** Where Grosik's current step points on the map. */
@@ -393,6 +419,7 @@ export class GameScreen {
     this.render();
     const at = this.hintPos(step) ?? (tg.kind === 'unit' ? this.state!.units.find((u) => u.id === tg.id)?.pos : undefined);
     if (at) this.centreOn(at);
+    if (tg.kind === 'panel') this.openPanel();
     this.bringIntoView(tg.kind === 'panel' ? this.panel.querySelector<HTMLElement>('.tab-body') : this.mapBox);
   }
 
@@ -498,6 +525,43 @@ export class GameScreen {
     }
     this.timeEl = h('span', { class: 'big-num gold-light' }, s.turnEndsAt ? '' : t('game.noLimit'));
     this.barEl = h('div', { class: 'bar-fill' });
+    const help = this.me() ? h('button', {
+      class: 'btn small help', title: t('tut.help'), 'aria-label': t('tut.help'), onclick: () => this.showTutorial(true),
+    }, '?') : null;
+    const fold = h('button', {
+      class: 'btn small fold', 'aria-expanded': String(this.barOpen),
+      title: t(this.barOpen ? 'bar.collapse' : 'bar.expand'), 'aria-label': t(this.barOpen ? 'bar.collapse' : 'bar.expand'),
+      onclick: () => {
+        this.barOpen = !this.barOpen;
+        savePref('kc.barOpen', this.barOpen);
+        this.renderHeader();
+      },
+    }, this.barOpen ? '▴' : '▾', this.barOpen ? null : h('span', { class: 'fold-text' }, ` ${t('bar.kingdoms')}`));
+    this.header.classList.toggle('compact', !this.barOpen);
+    if (!this.barOpen) {
+      // one slim row: the turn, the clock, and the child's own gold, food, mood and place
+      const me = this.me();
+      const ranking = [...s.kingdoms].sort((a, c) => c.prestige - a.prestige);
+      this.header.append(
+        h('div', { class: 'logo' }, castleIcon()),
+        h('span', { class: 'mini', title: t('game.turnOf', { season: season(s.turn), turn: s.turn, max: s.maxTurns }) },
+          '📅 ', h('span', { class: 'season-text' }, `${season(s.turn)} `), h('b', {}, `${s.turn}/${s.maxTurns}`)),
+        // without a turn clock there is nothing to count down: no need to say so in the folded bar
+        ...(s.turnEndsAt ? [h('span', { class: 'mini', title: t('w.time') }, '⏳ ', this.timeEl)] : []),
+        ...(me ? [
+          h('span', { class: 'mini me-mini', title: playerLabel(me) },
+            h('span', { class: 'chip-avatar', style: `border-color:${me.color}` }, avatarSvg(me.avatar, 22)), h('b', {}, kingdomName(me.id))),
+          h('span', { class: 'mini', title: t('w.gold') }, '💰 ', h('b', { class: 'gold' }, String(me.gold ?? 0))),
+          h('span', { class: 'mini', title: t('w.food') }, '🍖 ', h('b', {}, String(me.food ?? 0))),
+          h('span', { class: 'mini', title: t(`mood.${me.mood}`) }, moodFace(me.mood)),
+          h('span', { class: 'mini', title: t('goal.title') }, '🏆 ', h('b', {}, `${ranking.findIndex((k) => k.id === me.id) + 1}/${s.kingdoms.length}`)),
+        ] : []),
+        h('span', { class: 'spacer' }),
+        ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
+        fold, ...(help ? [help] : []));
+      this.tick();
+      return;
+    }
     this.header.append(
       logo,
       h('div', { class: 'stat' }, h('span', { class: 'label' }, word('w.turn')),
@@ -520,9 +584,7 @@ export class GameScreen {
           h('span', {}, `${k.prestige} · `, h('i', { class: ready ? 'good' : '' }, state))));
       })),
       ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
-      ...(this.me() ? [h('button', {
-        class: 'btn small help', title: t('tut.help'), 'aria-label': t('tut.help'), onclick: () => this.showTutorial(true),
-      }, '?')] : []),
+      fold, ...(help ? [help] : []),
     );
     this.tick();
   }
@@ -584,9 +646,20 @@ export class GameScreen {
     this.renderQuest();
     this.renderSheet();
     if (!s) return;
+    const me = this.me();
+    this.panel.classList.toggle('closed', !this.panelOpen);
+    if (!this.panelOpen && me && !phone()) {
+      this.panel.append(this.panelStrip(me));
+      return;
+    }
+    if (me && !phone()) {
+      this.panel.append(h('button', {
+        class: 'btn small panel-fold', title: t('panel.collapse'), 'aria-label': t('panel.collapse'),
+        onclick: () => this.setPanel(false),
+      }, `${t('panel.collapse')} »`));
+    }
     if (this.toast) this.panel.append(h('div', { class: 'toast', role: 'status' }, this.toast));
     if (s.finished) this.panel.append(this.gameOver());
-    const me = this.me();
     if (!me) {
       this.panel.append(this.spectator());
       return;
@@ -1051,10 +1124,12 @@ export class GameScreen {
       go = h('button', { class: 'btn-ready quest-go', onclick: () => this.endTurnNow() }, t('game.endTurn'));
     } else if (!this.kind) {
       const best = this.steps[0];
+      // the first turn explains the four kinds in big cards; after that the child knows them: small icon buttons
+      const small = s.turn > 1;
       append(body,
-        h('div', { class: 'quest-label' }, t('turn.pickWhy')),
-        h('div', { class: 'quest-now' }, t('turn.pick')),
-        this.kindPicker(),
+        small ? null : h('div', { class: 'quest-label' }, t('turn.pickWhy')),
+        h('div', { class: small ? 'quest-now small-now' : 'quest-now' }, t('turn.pick')),
+        this.kindPicker(small),
         h('div', { class: 'quest-why' }, best ? `★ ${t('turn.advice', { text: best.text })}` : saving(s, this.rules) ?? ''));
     } else {
       const idea = this.idea();
@@ -1098,16 +1173,17 @@ export class GameScreen {
   }
 
   /** The four kinds of move as big buttons; the one Grosik would pick has a star. */
-  private kindPicker(): HTMLElement {
+  private kindPicker(small = false): HTMLElement {
     const best = this.steps[0]?.move;
-    return h('div', { class: 'kinds' }, ...KINDS.map((k) => h('button', {
+    return h('div', { class: `kinds${small ? ' small' : ''}` }, ...KINDS.map((k) => h('button', {
       class: `kind-btn${k === best ? ' suggested' : ''}`, 'data-kind': k, disabled: this.amReady(),
+      title: `${t(`move.${k}`)}: ${t(`moveSub.${k}`)}`,
       onclick: () => this.chooseKind(k),
     },
     h('span', { class: 'kind-icon', 'aria-hidden': 'true' }, KIND_ICON[k]),
     h('span', { class: 'kind-name' }, t(`move.${k}`)),
-    h('span', { class: 'kind-sub' }, t(`moveSub.${k}`)),
-    k === best ? h('span', { class: 'kind-star' }, t('turn.advised')) : null)));
+    small ? null : h('span', { class: 'kind-sub' }, t(`moveSub.${k}`)),
+    k === best ? h('span', { class: 'kind-star' }, small ? '★' : t('turn.advised')) : null)));
   }
 
   /** The "Your move" tab: what to do for the chosen kind of move; economy and diplomacy are chosen right here. */
@@ -1201,6 +1277,38 @@ export class GameScreen {
     draw();
     document.body.append(this.intro);
     this.intro.querySelector<HTMLElement>('button')?.focus();
+  }
+
+  private setPanel(open: boolean): void {
+    this.panelOpen = open;
+    savePref('kc.panelOpen', open);
+    this.renderPanel();
+  }
+
+  private openPanel(): void {
+    if (!this.panelOpen) this.setPanel(true);
+  }
+
+  /** The folded panel: a narrow strip with the most important things as icons; any of them opens the panel. */
+  private panelStrip(me: KingdomView): HTMLElement {
+    const s = this.state!;
+    const open = () => this.setPanel(true);
+    const ready = this.amReady();
+    const icon = (label: string, ...kids: (Node | string)[]) =>
+      h('button', { class: 'strip-item', title: label, 'aria-label': label, onclick: open }, ...kids);
+    return h('div', { class: 'strip' },
+      h('button', { class: 'btn small strip-open', title: t('panel.expand'), 'aria-label': t('panel.expand'), onclick: open }, '«'),
+      icon(kingdomName(me.id), h('span', { class: 'chip-avatar', style: `border-color:${me.color}` }, avatarSvg(me.avatar, 36))),
+      icon(t('w.gold'), h('span', {}, '💰'), h('b', { class: 'gold' }, String(me.gold ?? 0))),
+      icon(t('w.food'), h('span', {}, '🍖'), h('b', {}, String(me.food ?? 0))),
+      icon(t(`mood.${me.mood}`), moodFace(me.mood)),
+      icon(t('w.ledger'), h('span', {}, '📒')),
+      icon(t('w.chronicle'), h('span', {}, '📜')),
+      h('span', { class: 'spacer' }),
+      s.finished ? null : h('button', {
+        class: `btn-ready strip-end${ready ? ' waiting' : ''}`, title: ready ? t('game.notReady') : t('game.endTurn'),
+        'aria-label': ready ? t('game.notReady') : t('game.endTurn'), onclick: () => this.conn.ready(!ready),
+      }, ready ? '⏸' : '▶'));
   }
 
   private endTurnNow(): void {
@@ -1324,6 +1432,24 @@ export class GameScreen {
 
 /** Orders that finish what the child was doing with the clicked thing. */
 const CLOSES = new Set<Order['order']>(['build', 'buildOnTile', 'recruit', 'move', 'attack', 'foundVillage']);
+
+/** A remembered yes/no for this device (folded bar or panel). */
+function pref(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+function savePref(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? '1' : '0');
+  } catch {
+    /* private mode: forgotten on reload */
+  }
+}
 
 function phone(): boolean {
   return window.matchMedia('(max-width: 900px)').matches;

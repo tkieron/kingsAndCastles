@@ -363,6 +363,11 @@ export const en = {
   'tip.peace': 'Peace time: nobody can attack until turn {n}. Build!',
   'tip.default': 'Every building costs gold now and brings gold later. Plan ahead!',
   'tip.name': 'Grosik',
+  'bar.expand': 'Show the whole bar with all kingdoms',
+  'bar.collapse': 'Fold the bar',
+  'bar.kingdoms': 'Kingdoms',
+  'panel.collapse': 'Fold',
+  'panel.expand': 'Open the panel',
   'tip.click': 'Click Grosik for a tip',
   'tip.close': 'Close',
   'tip.joke1': 'A coin saved today is a castle tower tomorrow. Well, a small one.',
@@ -441,6 +446,7 @@ export const en = {
 
   // ------------------------------------------------------------ errors
   'error.noSuchRoom': 'There is no room with this code.',
+  'error.serverFull': 'The server has too many games right now. Try again later.',
   'error.badName': 'Write your name (up to 20 letters).',
   'error.badRealm': 'The kingdom name can have up to 24 letters.',
   'error.gameStarted': 'This game has already started.',

@@ -1,0 +1,141 @@
+name: Deploy to kc.pointsapp.pl
+
+# After every change on main (so after Tomek merges a pull request), and on demand from the Actions tab:
+# build the game, copy it to the Mikrus server, install it there, and point kc.pointsapp.pl at that server in
+# Cloudflare. Secrets (Settings → Secrets and variables → Actions) are described in deploy/README.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  DOMAIN: kc.pointsapp.pl
+  ZONE: pointsapp.pl
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://kc.pointsapp.pl/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Build and test
+        run: |
+          mvn -B verify
+          cd client && npm ci && npm test && npm run build
+
+      - name: Check that the secrets are set
+        env:
+          SSH_KEY: ${{ secrets.MIKRUS_SSH_KEY }}
+          HOST: ${{ secrets.MIKRUS_HOST }}
+          PORT: ${{ secrets.MIKRUS_SSH_PORT }}
+          KNOWN: ${{ secrets.MIKRUS_KNOWN_HOSTS }}
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          missing=""
+          [ -n "$SSH_KEY" ] || missing="$missing MIKRUS_SSH_KEY"
+          [ -n "$HOST" ] || missing="$missing MIKRUS_HOST"
+          [ -n "$PORT" ] || missing="$missing MIKRUS_SSH_PORT"
+          [ -n "$KNOWN" ] || missing="$missing MIKRUS_KNOWN_HOSTS"
+          [ -n "$CF" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing (see deploy/README.md)"
+            exit 1
+          fi
+
+      - name: SSH key and the server's fingerprint
+        env:
+          SSH_KEY: ${{ secrets.MIKRUS_SSH_KEY }}
+          KNOWN: ${{ secrets.MIKRUS_KNOWN_HOSTS }}
+          HOST: ${{ secrets.MIKRUS_HOST }}
+          PORT: ${{ secrets.MIKRUS_SSH_PORT }}
+          USER_NAME: ${{ secrets.MIKRUS_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/kc-deploy
+          chmod 600 ~/.ssh/kc-deploy
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CFG
+          Host mikrus
+            HostName $HOST
+            Port $PORT
+            User ${USER_NAME:-root}
+            IdentityFile ~/.ssh/kc-deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 15
+          CFG
+
+      - name: Point kc.pointsapp.pl at the server (Cloudflare DNS)
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          # the public IPv6 address of the Mikrus server, read on the server itself
+          ip6="$(ssh mikrus "ip -6 addr show scope global | awk '/inet6/ {print \$2}' | cut -d/ -f1 | head -1")"
+          [ -n "$ip6" ] || { echo "::error::The server has no public IPv6 address"; exit 1; }
+          echo "Server IPv6: $ip6"
+          api=https://api.cloudflare.com/client/v4
+          auth=(-H "Authorization: Bearer $CF" -H "Content-Type: application/json")
+          zone="$(curl -fsS "${auth[@]}" "$api/zones?name=$ZONE" | jq -r '.result[0].id // empty')"
+          [ -n "$zone" ] || { echo "::error::The Cloudflare token cannot see the zone $ZONE"; exit 1; }
+          body="$(jq -nc --arg n "$DOMAIN" --arg c "$ip6" '{type:"AAAA",name:$n,content:$c,proxied:true,ttl:1,comment:"Kings & Castles (GitHub Actions)"}')"
+          id="$(curl -fsS "${auth[@]}" "$api/zones/$zone/dns_records?type=AAAA&name=$DOMAIN" | jq -r '.result[0].id // empty')"
+          if [ -n "$id" ]; then
+            curl -fsS "${auth[@]}" -X PUT "$api/zones/$zone/dns_records/$id" --data "$body" | jq -e '.success' >/dev/null
+            echo "Updated AAAA $DOMAIN → $ip6 (proxied)"
+          else
+            curl -fsS "${auth[@]}" -X POST "$api/zones/$zone/dns_records" --data "$body" | jq -e '.success' >/dev/null
+            echo "Created AAAA $DOMAIN → $ip6 (proxied)"
+          fi
+
+      - name: Copy the game to the server and install it
+        run: |
+          rm -rf "$RUNNER_TEMP/kc" && mkdir -p "$RUNNER_TEMP/kc/release"
+          cp deploy/install.sh deploy/Caddyfile "$RUNNER_TEMP/kc/"
+          cp server/target/server-*.jar "$RUNNER_TEMP/kc/release/server.jar"
+          cp -r client/dist "$RUNNER_TEMP/kc/release/client"
+          tar -C "$RUNNER_TEMP/kc" -czf "$RUNNER_TEMP/kc.tgz" .
+          ssh mikrus 'rm -rf /tmp/kc-release && mkdir -p /tmp/kc-release'
+          scp -q "$RUNNER_TEMP/kc.tgz" mikrus:/tmp/kc-release/kc.tgz
+          ssh mikrus "cd /tmp/kc-release && tar -xzf kc.tgz && KC_DOMAIN=$DOMAIN bash ./install.sh && rm -rf /tmp/kc-release"
+
+      - name: Cloudflare checks the server's certificate (SSL Full (strict), only for kc)
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bash deploy/cloudflare-ssl.sh apply
+
+      - name: Check the game from the internet
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS "https://$DOMAIN/api/rules" >/dev/null && curl -fsS "https://$DOMAIN/" | grep -q '<html'; then
+              echo "The game is live: https://$DOMAIN/"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::https://$DOMAIN/ does not answer yet. A new DNS record or certificate can take a few minutes; run this workflow again later."
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/kc-deploy

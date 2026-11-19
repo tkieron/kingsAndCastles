@@ -1,0 +1,19 @@
+# The game's site in the existing Caddy of pointsapp (Docker container pointsapp-caddy-1).
+# install.sh puts this block between the BEGIN/END lines in /home/appuser/pointsapp/Caddyfile and reloads Caddy.
+# The Cloudflare Origin certificate already used by pointsapp.pl covers *.pointsapp.pl.
+kc.pointsapp.pl {
+	tls /certs/origin.crt /certs/origin.key
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	request_body {
+		max_size 64KB
+	}
+	reverse_proxy kingscastles:8080
+}
