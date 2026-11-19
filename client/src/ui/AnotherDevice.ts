@@ -1,5 +1,5 @@
 import qrcode from 'qrcode-generator';
-import { api, ApiError, isLocal, type Seat } from '../api';
+import { api, ApiError, isLocal, serverUrl, type Seat } from '../api';
 import { h } from '../dom';
 import { t } from '../i18n';
 
@@ -10,25 +10,30 @@ export function formatCode(code: string): string {
 }
 
 /**
- * The address that opens this game on another device and comes straight back to the seat. The code sits after "#",
- * which the browser never sends to a server, so it does not end up in server or proxy logs.
+ * The address that opens this game on another device and comes straight back to the seat. It names this game's
+ * server (?server=, the same setting as typed by hand), so the other device talks to the same one even if it once
+ * played elsewhere. The code sits after "#", which the browser never sends to a server, so it does not end up in
+ * server or proxy logs.
  */
-export function resumeLink(room: string, code: string, base = `${location.origin}${location.pathname}`): string {
-  return `${base}#room=${encodeURIComponent(room)}&resume=${encodeURIComponent(formatCode(code))}`;
+export function resumeLink(room: string, code: string, base = `${location.origin}${location.pathname}`,
+  server = serverUrl()): string {
+  return `${base}?server=${encodeURIComponent(server)}#room=${encodeURIComponent(room)}&resume=${encodeURIComponent(formatCode(code))}`;
 }
 
-/** Reads #room=…&resume=… from the address, and removes it at once so the code does not stay in the history. */
+/**
+ * Reads #room=…&resume=… from the address, and removes it at once so the code does not stay in the history.
+ * Without a room the code is still kept for the form; the child types the room code.
+ */
 export function takeResumeFromAddress(): { room: string; code: string } | null {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   const code = params.get('resume');
-  const room = params.get('room');
   if (!code) return null;
   try {
     history.replaceState(null, '', `${location.pathname}${location.search}`);
   } catch {
     /* some embedded browsers refuse: the code then simply stays in the address */
   }
-  return room ? { room: room.replace(/\D/g, ''), code } : null;
+  return { room: (params.get('room') ?? '').replace(/\D/g, ''), code };
 }
 
 /** A QR code drawn as one SVG path, black on white, with the quiet border scanners need. */
@@ -96,15 +101,28 @@ export async function showAnotherDevice(seat: Seat): Promise<void> {
       ...body,
       h('div', { class: 'tut-buttons' }, h('span'), close)));
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') done();
+    if (e.key !== 'Escape') return;
+    // only this card closes: the turn summary or the sheet underneath listen for Escape too
+    e.stopPropagation();
+    done();
   };
   function done(): void {
     document.removeEventListener('keydown', onKey);
     layer.remove();
   }
+  closeAnotherDevice();
+  closeOpen = done;
   document.addEventListener('keydown', onKey);
   document.body.append(layer);
   close.focus();
+}
+
+let closeOpen: (() => void) | null = null;
+
+/** Closes the card if it is open: called when the screen behind it goes away (lobby to game, leaving). */
+export function closeAnotherDevice(): void {
+  closeOpen?.();
+  closeOpen = null;
 }
 
 /** The 📱 button for the top bar or the lobby; null in the offline version, where the game lives on one device. */

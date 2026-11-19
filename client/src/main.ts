@@ -6,6 +6,7 @@ import type { Rules } from './types';
 import { GameScreen } from './ui/GameScreen';
 import { homeScreen } from './ui/HomeScreen';
 import { LobbyScreen } from './ui/LobbyScreen';
+import { closeAnotherDevice } from './ui/AnotherDevice';
 
 const app = document.getElementById('app')!;
 let rules: Rules | null = null;
@@ -15,6 +16,7 @@ let lobby: LobbyScreen | null = null;
 let seat: Seat | null = null;
 
 function clear(): void {
+  closeAnotherDevice();
   game?.destroy();
   game = null;
   lobby = null;

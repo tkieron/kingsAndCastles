@@ -65,9 +65,6 @@ public class RoomService {
     private final long pausedIdleMillis;
     static final int PAUSES_PER_WINDOW = 10;
     static final long PAUSE_WINDOW_MILLIS = 60_000;
-    /** Wrong return codes allowed in one room per window: a child with typos is fine, guessing 2^40 codes is not. */
-    static final int RESUME_TRIES_PER_WINDOW = 10;
-    static final long RESUME_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(15);
     private final long autoPauseMillis;
 
     /** For tests: generous limits. */
@@ -510,23 +507,29 @@ public class RoomService {
     public record Codes(String player, String host) {
     }
 
-    /**
-     * Comes back to a room on another device with a return code. Each room takes at most
-     * {@link #RESUME_TRIES_PER_WINDOW} wrong codes per {@link #RESUME_WINDOW_MILLIS}, then refuses every code
-     * (even a right one) until the window ends, so nobody can try codes one after another.
-     */
     public Resumed resume(String code, String typed) {
+        return resume(code, typed, "test");
+    }
+
+    /**
+     * Comes back to a room on another device with a return code. Wrong codes are counted per device and per room
+     * (see {@link ResumeTries}); past the limit every code, even a right one, is refused until the window ends.
+     * Something that is not a return code at all (empty, wrong length, wrong letters) is not counted: it cannot
+     * be a guess.
+     *
+     * @param client the device's internet address, as well as the server can tell it
+     */
+    public Resumed resume(String code, String typed, String client) {
         Room room = room(code);
+        String wanted = ResumeCodes.normalize(typed);
+        if (wanted == null) {
+            throw new GameException("error.badResumeCode");
+        }
         synchronized (room) {
             long now = System.currentTimeMillis();
-            if (now - room.resumeWindowStart > RESUME_WINDOW_MILLIS) {
-                room.resumeWindowStart = now;
-                room.resumeFailures = 0;
-            }
-            if (room.resumeFailures >= RESUME_TRIES_PER_WINDOW) {
+            if (room.resumeTries.blocked(client, now)) {
                 throw new GameException("error.tooManyTries");
             }
-            String wanted = ResumeCodes.normalize(typed);
             // every code is compared, so the answer takes as long whether a match comes first or last
             Player found = null;
             for (Player p : room.record.players) {
@@ -536,8 +539,10 @@ public class RoomService {
             }
             boolean host = ResumeCodes.same(room.record.hostResumeCode, wanted);
             if (found == null && !host) {
-                room.resumeFailures++;
-                log.info("Wrong return code in room {} ({} of {})", room.code(), room.resumeFailures, RESUME_TRIES_PER_WINDOW);
+                int n = room.resumeTries.failed(client, now);
+                if (n == ResumeTries.PER_CLIENT) {
+                    log.info("Too many wrong return codes in room {} from one device", room.code());
+                }
                 throw new GameException("error.badResumeCode");
             }
             if (found != null) {

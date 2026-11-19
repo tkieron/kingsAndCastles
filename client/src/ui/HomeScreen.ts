@@ -131,8 +131,12 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
   }) as HTMLInputElement;
   const comeBack = async () => {
     error.textContent = '';
+    const room = resumeRoom.value.replace(/\D/g, '');
+    if (room.length !== 6) {
+      error.textContent = t('error.noSuchRoom');
+      return;
+    }
     try {
-      const room = resumeRoom.value.replace(/\D/g, '');
       const r = await api.resume(room, resumeCode.value);
       const seat: Seat = { code: room, token: r.token, hostToken: r.hostToken };
       saveSeat(seat);
@@ -154,7 +158,7 @@ export function homeScreen(rules: Rules | null, go: (seat: Seat) => void, relang
     h('label', { class: 'col' }, t('home.code'), resumeRoom),
     h('label', { class: 'col' }, t('home.resumeCode'), resumeCode)),
   h('button', { class: 'btn', type: 'submit' }, t('home.resumeButton')));
-  if (fromLink) queueMicrotask(() => void comeBack());
+  if (fromLink?.room) queueMicrotask(() => void comeBack());
 
   const turnSel = h('select', { class: 'input', 'aria-label': t('home.turnLength') },
     ...TURN_LENGTHS.map((s) => h('option', { value: s, selected: s === 60 }, s ? t('home.seconds', { n: s }) : t('home.noLimit'))));

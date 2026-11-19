@@ -100,7 +100,7 @@ try {
   const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'pl-PL', ignoreHTTPSErrors: !!hostRules });
   const phone = await phoneCtx.newPage();
   phone.on('pageerror', (e) => problems.push(`phone: ${e.message}`));
-  await phone.goto(`${url}#room=${code}&resume=${resumeCode}`);
+  await phone.goto(`${url}?server=${encodeURIComponent(url.replace(/\/$/, ""))}#room=${code}&resume=${resumeCode}`);
   await phone.getByText(/2\/20/).first().waitFor();
   check(!phone.url().includes('resume='), 'the phone opens Ania\'s game from the link, and the code leaves the address');
   await shot(phone, '5-phone-back-in-game');

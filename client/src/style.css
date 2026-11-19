@@ -445,7 +445,7 @@ h2 { font-size: 22px; }
 }
 
 /* another device: the return code and its QR code */
-.tut.device { z-index: 60; }
+.tut.device { z-index: 70; } /* above the frozen-game card, which it is opened from */
 .qr-box { display: flex; justify-content: center; }
 .qr-box .qr { width: min(200px, 60vw); height: auto; background: #fff; border-radius: 6px; }
 .device-codes { justify-content: center; gap: 24px; }

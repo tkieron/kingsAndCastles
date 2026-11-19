@@ -448,26 +448,45 @@ class RoomServiceTest {
     }
 
     @Test
-    void guessingIsStoppedAfterTenWrongCodesInARoom() {
+    void guessingIsStoppedAfterTenWrongCodesFromOneDevice() {
         RoomService s = service();
         Room room = s.create(TWO_CHILDREN_NO_CLOCK);
         Player ania = s.join(room.code(), "Ania");
-        for (int i = 0; i < RoomService.RESUME_TRIES_PER_WINDOW; i++) {
-            String wrong = i % 2 == 0 ? "AAAA-AAAA" : "not a code at all";
-            assertEquals("error.badResumeCode", assertThrows(GameException.class, () -> s.resume(room.code(), wrong)).key);
+        // not a return code at all: refused, but not counted as a guess
+        for (String junk : new String[] {null, "", "abc", "AAAA-AAA1", "x".repeat(40)}) {
+            for (int i = 0; i < 20; i++) {
+                assertEquals("error.badResumeCode", assertThrows(GameException.class, () -> s.resume(room.code(), junk, "1.1.1.1")).key);
+            }
         }
-        assertEquals("error.tooManyTries", assertThrows(GameException.class, () -> s.resume(room.code(), ania.resumeCode())).key,
+        for (int i = 0; i < ResumeTries.PER_CLIENT; i++) {
+            assertEquals("error.badResumeCode", assertThrows(GameException.class, () -> s.resume(room.code(), "AAAA-AAAA", "1.1.1.1")).key);
+        }
+        assertEquals("error.tooManyTries", assertThrows(GameException.class, () -> s.resume(room.code(), ania.resumeCode(), "1.1.1.1")).key,
                 "after ten wrong codes even the right one waits");
+        assertEquals(ania.token(), s.resume(room.code(), ania.resumeCode(), "2.2.2.2").token(),
+                "another device in the room is not locked out");
 
-        // another room is not blocked
+        // another room is not blocked either
         Room other = s.create(TWO_CHILDREN_NO_CLOCK);
         Player ola = s.join(other.code(), "Ola");
-        assertEquals(ola.token(), s.resume(other.code(), ola.resumeCode()).token());
+        assertEquals(ola.token(), s.resume(other.code(), ola.resumeCode(), "1.1.1.1").token());
 
-        // fifteen minutes later the room takes codes again
-        room.resumeWindowStart -= RoomService.RESUME_WINDOW_MILLIS + 1;
-        assertEquals(ania.token(), s.resume(room.code(), ania.resumeCode()).token());
+        // fifteen minutes later the device may try again
+        room.resumeTries.windowStart -= ResumeTries.WINDOW_MILLIS + 1;
+        assertEquals(ania.token(), s.resume(room.code(), ania.resumeCode(), "1.1.1.1").token());
         assertEquals("error.noSuchRoom", assertThrows(GameException.class, () -> s.resume("999999x", ania.resumeCode())).key);
+    }
+
+    @Test
+    void manyDevicesTogetherAreStoppedTooSoChangingAddressesDoesNotHelp() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ania = s.join(room.code(), "Ania");
+        for (int i = 0; i < ResumeTries.PER_ROOM; i++) {
+            String device = "10.0.0." + i;
+            assertEquals("error.badResumeCode", assertThrows(GameException.class, () -> s.resume(room.code(), "AAAA-AAAA", device)).key);
+        }
+        assertEquals("error.tooManyTries", assertThrows(GameException.class, () -> s.resume(room.code(), ania.resumeCode(), "10.9.9.9")).key);
     }
 
     @Test

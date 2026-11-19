@@ -72,8 +72,14 @@ public class RoomController {
 
     /** Back to the game on another device: the return code gives the player token and/or the host token. */
     @PostMapping("/{code}/resume")
-    public RoomService.Resumed resume(@PathVariable String code, @RequestBody ResumeRequest req) {
-        return rooms.resume(code, req.resumeCode());
+    public RoomService.Resumed resume(@PathVariable String code, @RequestBody ResumeRequest req,
+                                      @RequestHeader(value = "CF-Connecting-IP", required = false) String cloudflareIp,
+                                      jakarta.servlet.http.HttpServletRequest http) {
+        // behind Cloudflare the visitor's address comes in this header; anyone reaching the server directly could
+        // fake it, which is why each room also has a limit for all devices together
+        String client = cloudflareIp != null && !cloudflareIp.isBlank() && cloudflareIp.length() <= 64
+                ? cloudflareIp.strip() : http.getRemoteAddr();
+        return rooms.resume(code, req.resumeCode(), client);
     }
 
     /** The return codes this screen may show (its own child's, and the host's for the host's screen). */

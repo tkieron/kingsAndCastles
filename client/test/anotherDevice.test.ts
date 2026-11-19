@@ -11,7 +11,8 @@ describe('another device', () => {
   });
 
   it('builds a link with the room and the code', () => {
-    expect(resumeLink('123456', 'K7MQ4QX2', 'https://kc.pointsapp.pl/')).toBe('https://kc.pointsapp.pl/#room=123456&resume=K7MQ-4QX2');
+    expect(resumeLink('123456', 'K7MQ4QX2', 'https://kc.pointsapp.pl/', 'https://kc.pointsapp.pl'))
+      .toBe('https://kc.pointsapp.pl/?server=https%3A%2F%2Fkc.pointsapp.pl#room=123456&resume=K7MQ-4QX2');
   });
 
   it('takes the code out of the address at once, so it does not stay in the history', () => {
@@ -23,10 +24,13 @@ describe('another device', () => {
     history.replaceState(null, '', '/?room=123456');
     expect(takeResumeFromAddress()).toBeNull();
     expect(location.search).toBe('?room=123456');
+    // a link cut short: the code still fills the form
+    history.replaceState(null, '', '/#resume=K7MQ-4QX2');
+    expect(takeResumeFromAddress()).toEqual({ room: '', code: 'K7MQ-4QX2' });
   });
 
   it('draws a QR code that holds exactly the link', () => {
-    const link = resumeLink('123456', 'K7MQ4QX2', 'https://kc.pointsapp.pl/');
+    const link = resumeLink('123456', 'K7MQ4QX2', 'https://kc.pointsapp.pl/', 'https://kc.pointsapp.pl');
     const svg = qrSvg(link);
     const qr = qrcode(0, 'M');
     qr.addData(link);

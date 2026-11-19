@@ -84,12 +84,14 @@ Errors come back as `400 {"error":"error.key"}`; the client translates the key.
 
 Every child gets a return code when they join (8 letters and digits, e.g. `K7MQ-4QX2`, no 0/O or 1/I/L), and the
 host gets one for the host's screen. The 📱 button in the game, the lobby and the frozen-game card shows it with a QR
-code of the link `#room=123456&resume=K7MQ-4QX2` (after `#`, so the code never reaches server or proxy logs); scanning it, or typing the room code and the return code under
+code of the link `#room=123456&resume=K7MQ-4QX2`; scanning it, or typing the room code and the return code under
 "Back to your game", brings the child back to their kingdom on any device. A host who joins as a player from the
 host's screen needs only their own code: it also gives back the host's buttons. No accounts and no personal data.
 
-Guessing is stopped per room: after 10 wrong codes in 15 minutes the room refuses every code (the right one too)
-until the 15 minutes are over. The codes are never in the lobby or the game state, only in the answer to that
+Guessing is stopped in each room: one device (by its address, `CF-Connecting-IP` behind Cloudflare) gets 10 wrong
+codes per 15 minutes, all devices together 100; past that every code, the right one too, waits until the 15 minutes
+are over. Text that cannot be a code (empty, wrong length) is not counted. The link carries the code after `#`, so it
+never reaches server or proxy logs. The codes are never in the lobby or the game state, only in the answer to that
 screen's own token. Rooms saved before this change get codes when the server loads them.
 
 ### WebSocket `/ws`
