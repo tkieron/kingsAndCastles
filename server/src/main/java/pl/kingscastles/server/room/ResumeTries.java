@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit;
  * Counts wrong return codes in one room, so nobody can try codes one after another. Each device (by its internet
  * address) may get {@link #PER_CLIENT} wrong codes per {@link #WINDOW_MILLIS}; one device typing junk therefore
  * does not lock the other children out. All devices together may get {@link #PER_ROOM}, in case someone changes
- * addresses: even then 2^40 codes at 100 per 15 minutes would take millions of years.
+ * addresses: even then 8.5 × 10^11 codes at 100 per 15 minutes would take millions of years.
  * Guarded by the room's lock.
  */
 final class ResumeTries {

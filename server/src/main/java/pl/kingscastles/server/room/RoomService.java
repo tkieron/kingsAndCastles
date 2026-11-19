@@ -596,7 +596,7 @@ public class RoomService {
         }
     }
 
-    /** A code no one else in the room has (two equal codes in 2^40 are unlikely, but cost nothing to rule out). */
+    /** A code no one else in the room has (two equal codes are unlikely, but cost nothing to rule out). */
     private String newResumeCode(RoomRecord r) {
         while (true) {
             String c = ResumeCodes.create(random);

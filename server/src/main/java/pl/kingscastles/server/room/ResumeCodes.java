@@ -6,8 +6,8 @@ import java.security.SecureRandom;
 import java.util.Locale;
 
 /**
- * Return codes: how a child gets back to their kingdom on another device. Eight characters from 32 letters and
- * digits that are easy to read and type (no 0/O, 1/I/L), so 2^40 possible codes. Shown as two groups,
+ * Return codes: how a child gets back to their kingdom on another device. Eight characters from 31 letters and
+ * digits that are easy to read and type (no 0/O, 1/I/L), so about 8.5 × 10^11 (2^39.6) possible codes. Shown as two groups,
  * {@code K7MQ-4QX2}; the dash, spaces and small letters are ignored when typed in.
  * Guessing is also limited per room (see {@link RoomService#resume}).
  */
