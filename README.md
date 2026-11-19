@@ -4,7 +4,8 @@ A simple turn-based strategy and economy game for 4th-grade kids, played in the 
 
 - `engine/` – game rules in pure Java 21 (map, economy, orders, 9-phase turn resolution)
 - `server/` – Spring Boot server holding game state (coming next)
-- `client/` – TypeScript + Canvas PWA (coming next)
+- `client/` – TypeScript + Canvas PWA
+- `browser/` – the engine compiled to JavaScript (TeaVM), for the offline version with no server
 
 ## Engine
 
@@ -15,6 +16,12 @@ mvn test
 `Game.create(setup)` makes a map for 2–7 kingdoms, `game.submit(kingdom, orders)` checks and stores a
 kingdom's orders for the turn, `game.endTurn()` carries out everyone's orders together and returns the
 turn report (Chronicle events with translation keys, each kingdom's Ledger, prestige).
+
+One turn is one move. At the start of a turn a kingdom first answers treaty offers (accept or decline, free), then
+picks one kind of move (army, buildings, economy or diplomacy) and gives one order of that kind
+(`Balance.actionsPerTurn`, 1). An Army move also walks or attacks with every army at once; training an army or
+founding a village is the counted move. Computer kings play by the same rule. The client shows the offers, and news that
+someone broke a treaty with you, as a card before the move.
 
 A turn is resolved in fixed phases, so the result never depends on who clicked first:
 0 reserve gold · 1 deals · 2 gifts · 3 market · 4 move (step by step, meetings fight) · 5 attacks (fastest first)
@@ -37,7 +44,10 @@ Settings (environment variables):
 |---|---|---|
 | `PORT` | `8080` | HTTP and WebSocket port |
 | `KC_DATA_DIR` | `./data` | Folder where each room is saved as `<code>.json` after every change |
-| `KC_ALLOWED_ORIGINS` | `*` | Where the PWA is served from, e.g. `https://tkieron.github.io` |
+| `KC_ALLOWED_ORIGINS` | `*` | Other addresses allowed to call the API and WebSocket, e.g. `https://kc.pointsapp.pl` |
+| `KC_CLIENT_DIR` | (empty) | Folder with the built game page (`client/dist`); the server then serves the game too |
+| `KC_MAX_ROOMS` | `500` | At most this many rooms at once |
+| `KC_ROOM_IDLE_DAYS` | `14` | A room nobody touched for this many days is removed |
 
 A saved room keeps only the seed and the children's orders, so after a restart every game is rebuilt
 exactly by replaying them (computer kings decide the same way again).
@@ -74,14 +84,54 @@ cd client
 npm install
 npm run dev          # http://localhost:5173, talks to the server on http://localhost:8080
 npm test             # rules and texts
-npm run build        # dist/ is ready for GitHub Pages
+npm run build        # dist/ is served by the Java server (KC_CLIENT_DIR)
 ```
 
 The server address comes from `?server=https://…` in the page address (remembered on the device), or from
 `VITE_SERVER_URL` at build time.
+
+The child is never left wondering what to do: Grosik, the treasurer, shows one next step at a time above the map
+(build a market, a farm, a gold mine, walk to the ruins, end the turn), with a blinking yellow frame on the map and
+"Show me", which selects the right castle, village, field or army. The suggestions come from `src/game/advisor.ts`
+and are only hints: the child can give any order. The first game starts with three short cards (story, goal,
+Grosik); the full tour of the screen is behind the "?" button. After every turn a short card shows gold and food
+before and after, and what happened to the child's kingdom.
 
 Languages: English with Polish tooltips (hover with the mouse, or hold a finger on a dotted word), or the full
 Polish version whose tooltips show the English word. Every text the server can send has a translation; a test
 reads the engine sources to make sure.
 
 Orders are JSON with an `order` field, for example `{"order":"build","settlementId":3,"building":"MARKET"}`.
+
+## Offline version (no server)
+
+The whole game can also run inside one web page: the Java engine is compiled to JavaScript with
+[TeaVM](https://teavm.org) (`browser/`), and `client/src/local/` plays the server's part (rooms, Ready, the turn
+clock), so the rules and the computer kings are exactly the same as on the server. One child plays against six
+computer kings; the game is kept on the device and comes back after a reload.
+
+```bash
+mvn -B -pl browser -am package     # browser/target/js/kc-engine.js
+cd client
+npm run build:offline              # dist-offline/kings-and-castles-offline.html
+```
+
+The result is a single HTML file that opens straight from the disk (double click), with no internet needed except
+for the web fonts. Any build of the client that includes the engine also plays offline with `?server=local` in the
+page address.
+
+## Deployment
+
+The Java server also serves the built game page (`KC_CLIENT_DIR=client/dist`), so the whole game lives at one
+address, https://kc.pointsapp.pl. Every change on `main` is tested and deployed to a small VPS (mikr.us), as a Docker container behind the Caddy that already serves pointsapp
+and Cloudflare by `.github/workflows/deploy.yml`. Setup and the secrets it needs (in Polish) are in
+[`deploy/README.md`](deploy/README.md).
+
+To run the server version on your own computer:
+
+```bash
+mvn -B package
+cd client && npm ci && npm run build && cd ..
+KC_CLIENT_DIR=client/dist java -jar server/target/server-0.1.0-SNAPSHOT.jar   # http://localhost:8080
+cd client && npm run e2e      # plays a two-child game in a real browser against that server
+```

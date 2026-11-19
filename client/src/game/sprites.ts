@@ -178,7 +178,7 @@ export function drawUnit(ctx: Ctx, x: number, y: number, s: number, type: string
   ctx.fillStyle = color;
   ctx.fillRect(x + inset + border, y + inset + border, size - 2 * border, size - 2 * border);
   ctx.fillStyle = '#ffffff';
-  ctx.font = `700 ${Math.round(s * 15 / 44)}px 'Pixelify Sans', monospace`;
+  ctx.font = `700 ${Math.round(s * 15 / 44)}px Nunito, 'Segoe UI', Arial, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(letters[type] ?? '?', x + s / 2, y + s / 2 + 1);

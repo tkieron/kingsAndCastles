@@ -52,13 +52,15 @@ class GameFlowTest {
         String code = created.get("code").asText();
         String host = created.get("hostToken").asText();
 
-        JsonNode ania = post("/api/rooms/" + code + "/join", "{\"name\":\"Ania\"}", null, null);
+        JsonNode ania = post("/api/rooms/" + code + "/join", "{\"name\":\"Ania\",\"realm\":\"Kraina Lisów\",\"avatar\":3}", null, null);
         assertEquals("fox", ania.get("kingdom").asText());
         String token = ania.get("token").asText();
 
         JsonNode lobby = json.readTree(http.getForObject("/api/rooms/" + code, String.class));
         assertEquals("Ania", lobby.at("/seats/0/player").asText());
         assertEquals(7, lobby.get("seats").size());
+        assertEquals("Kraina Lisów", lobby.at("/seats/0/realm").asText());
+        assertEquals(3, lobby.at("/seats/0/avatar").asInt());
 
         // a child cannot start the game
         JsonNode refused = post("/api/rooms/" + code + "/start", "", RoomController.HOST, token);
@@ -99,6 +101,8 @@ class GameFlowTest {
         JsonNode turn2 = next(inbox);
         assertEquals(2, turn2.at("/state/turn").asInt());
         assertEquals("MEDIUM", turn2.at("/state/kingdoms/0/tax").asText());
+        assertEquals("Kraina Lisów", turn2.at("/state/kingdoms/0/realm").asText());
+        assertEquals(3, turn2.at("/state/kingdoms/0/avatar").asInt());
         assertTrue(turn2.at("/state/report/ledger").size() > 0, "Ania sees her Ledger");
 
         JsonNode rest = json.readTree(http.exchange("/api/rooms/" + code + "/state", HttpMethod.GET,

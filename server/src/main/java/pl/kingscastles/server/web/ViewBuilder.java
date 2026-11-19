@@ -36,9 +36,10 @@ public final class ViewBuilder {
         for (int i = 0; i < plan.size(); i++) {
             int idx = i;
             Game.KingdomPreset preset = Game.PRESETS.get(i);
-            String player = room.record.players.stream().filter(p -> p.seat() == idx)
-                    .map(Player::name).findFirst().orElse(null);
-            seats.add(new Views.Seat(i, preset.id(), preset.name(), preset.color(), plan.get(i), player));
+            Player player = room.record.players.stream().filter(p -> p.seat() == idx).findFirst().orElse(null);
+            seats.add(new Views.Seat(i, preset.id(), preset.name(), preset.color(), plan.get(i),
+                    player == null ? null : player.name(), player == null ? null : player.realm(),
+                    player == null ? null : player.avatar()));
         }
         return new Views.Lobby(room.code(), room.record.status, room.record.settings, seats);
     }
@@ -51,10 +52,13 @@ public final class ViewBuilder {
         List<Views.KingdomView> kingdoms = new ArrayList<>();
         for (Kingdom k : s.kingdoms.values()) {
             boolean mine = k.id.equals(me);
+            Player player = room.record.players.stream()
+                    .filter(p -> Room.kingdomOfSeat(p.seat()).equals(k.id)).findFirst().orElse(null);
             kingdoms.add(new Views.KingdomView(k.id, k.name, k.color, k.playerName, k.controller, k.autopilot,
                     k.overlord, k.mood, Scoring.prestige(s, k.id), k.palaceDone, k.palacePaid,
                     k.brokenPromiseUntil >= s.turn,
-                    mine ? k.gold : null, mine ? k.food : null, mine ? k.loanLeft : null, mine ? k.tax : null));
+                    mine ? k.gold : null, mine ? k.food : null, mine ? k.loanLeft : null, mine ? k.tax : null,
+                    player == null ? null : player.realm(), player == null ? null : player.avatar()));
         }
         List<Views.SettlementView> settlements = s.settlements.stream()
                 .map(st -> new Views.SettlementView(st.id, st.name, st.pos, st.castle, st.owner, st.families,

@@ -8,10 +8,13 @@
     "build": "node scripts/make-icons.mjs && tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build:offline": "node scripts/make-icons.mjs && tsc --noEmit && vite build --mode offline && node scripts/one-file.mjs",
+    "e2e": "node e2e/server-game.mjs"
   },
   "devDependencies": {
     "jsdom": "25.0.1",
+    "playwright": "1.49.1",
     "typescript": "5.6.3",
     "vite": "5.4.10",
     "vitest": "2.1.4"

@@ -34,9 +34,9 @@ class MovementTest {
         w.terrain(3, 2, Terrain.FOREST);
         w.terrain(5, 5, Terrain.MOUNTAIN);
 
-        assertEquals("error.tooFar", key(w, new Order.Move(spear.id, List.of(p(2, 3), p(2, 4)))));
+        assertEquals("error.tooFar", key(w, new Order.Move(spear.id, List.of(p(2, 3), p(2, 4), p(2, 5)))));
         assertNull(key(w, new Order.Move(spear.id, List.of(p(3, 2)))), "one step is always allowed, even into forest");
-        assertEquals("error.tooFar", key(w, new Order.Move(knight.id, List.of(p(3, 6), p(4, 6)))));
+        assertEquals("error.tooFar", key(w, new Order.Move(knight.id, List.of(p(3, 6), p(4, 6), p(5, 6)))));
         assertEquals("error.pathNotConnected", key(w, new Order.Move(knight.id, List.of(p(4, 6)))));
         Unit nearMountain = w.unit("fox", UnitType.SPEARMAN, 4, 4);
         assertEquals("error.cannotEnter", key(w, new Order.Move(nearMountain.id, List.of(p(5, 5)))));

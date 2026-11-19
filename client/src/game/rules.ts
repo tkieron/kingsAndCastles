@@ -149,3 +149,32 @@ export function payback(rules: Rules, type: BuildingType): number | undefined {
   const per = income[type];
   return per ? Math.ceil(buildingCost(rules, type) / per) : undefined;
 }
+
+/** Can a settler found a village on this field? The same rule as the engine's foundVillage. */
+export function villageSpot(state: GameState, rules: Rules, p: Pos): 'ok' | 'tooClose' | 'badGround' {
+  const tc = terrainAt(state.map, p);
+  if (tc === 'R' || !passable(state.map, p)) return 'badGround';
+  const min = rules.balance.settlerMinDistance ?? 3;
+  return state.settlements.some((s) => distance(s.pos, p) < min) ? 'tooClose' : 'ok';
+}
+
+/** The nearest field (in steps) where a village can be founded, walking from `from`. */
+export function nearestVillageSpot(state: GameState, rules: Rules, from: Pos): Pos | undefined {
+  const seen = new Set([key(from)]);
+  let ring = [from];
+  for (let steps = 0; steps < 30 && ring.length; steps++) {
+    const ok = ring.filter((p) => villageSpot(state, rules, p) === 'ok'
+      && !state.units.some((u) => samePos(u.pos, p) && !samePos(p, from)));
+    if (ok.length) return ok.sort((a, b) => (a.y - b.y) || (a.x - b.x))[0];
+    const next: Pos[] = [];
+    for (const p of ring) {
+      for (const n of neighbours(p, state.map)) {
+        if (seen.has(key(n)) || !passable(state.map, n)) continue;
+        seen.add(key(n));
+        next.push(n);
+      }
+    }
+    ring = next;
+  }
+  return undefined;
+}

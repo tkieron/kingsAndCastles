@@ -37,7 +37,8 @@ public final class Views {
     }
 
     /** One of the seven kingdoms in the lobby: who sits there (a child's name, or nobody yet). */
-    public record Seat(int seat, String kingdom, String name, String color, Controller controller, String player) {
+    public record Seat(int seat, String kingdom, String name, String color, Controller controller, String player,
+                       String realm, Integer avatar) {
     }
 
     // ------------------------------------------------------------------ game
@@ -74,11 +75,15 @@ public final class Views {
     public record TileThing(Pos pos, BuildingType building) {
     }
 
-    /** gold, food, loanLeft and tax are filled in only for the player's own kingdom. */
+    /**
+     * gold, food, loanLeft and tax are filled in only for the player's own kingdom. realm and avatar: the name and
+     * picture the child chose (null for computer kings, or a realm left empty).
+     */
     public record KingdomView(String id, String name, String color, String playerName, Controller controller,
                               boolean autopilot, String overlord, Mood mood, int prestige, boolean palaceDone,
                               int palacePaid, boolean promiseBreaker,
-                              Integer gold, Integer food, Integer loanLeft, TaxRate tax) {
+                              Integer gold, Integer food, Integer loanLeft, TaxRate tax,
+                              String realm, Integer avatar) {
     }
 
     public record SettlementView(int id, String name, Pos pos, boolean castle, String owner, int families,

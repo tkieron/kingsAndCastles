@@ -1,0 +1,106 @@
+name: Check the deploy setup
+
+# Checks, without changing anything, that the deploy secrets are set and work:
+# the SSH key opens the Mikrus server (host key pinned), the server has a public IPv6 address,
+# and the Cloudflare token is valid and sees the zone. Run it from Actions → Check the deploy setup.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths: ['.github/workflows/check-deploy.yml', 'deploy/cloudflare-ssl.sh']
+
+permissions:
+  contents: read
+
+env:
+  ZONE: pointsapp.pl
+  DOMAIN: kc.pointsapp.pl
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secrets are set
+        env:
+          SSH_KEY: ${{ secrets.MIKRUS_SSH_KEY }}
+          HOST: ${{ secrets.MIKRUS_HOST }}
+          PORT: ${{ secrets.MIKRUS_SSH_PORT }}
+          KNOWN: ${{ secrets.MIKRUS_KNOWN_HOSTS }}
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          USER_NAME: ${{ secrets.MIKRUS_USER }}
+        run: |
+          bad=0
+          for n in SSH_KEY HOST PORT KNOWN CF; do
+            if [ -n "${!n}" ]; then echo "ok: $n is set"; else echo "::error::$n is empty"; bad=1; fi
+          done
+          [ -n "$USER_NAME" ] && echo "ok: MIKRUS_USER is set" || echo "info: MIKRUS_USER not set, root will be used"
+          printf '%s\n' "$SSH_KEY" | head -1 | grep -q 'BEGIN OPENSSH PRIVATE KEY' && echo "ok: the SSH key looks like a private key" \
+            || { echo "::error::MIKRUS_SSH_KEY does not start with -----BEGIN OPENSSH PRIVATE KEY-----"; bad=1; }
+          [[ "$PORT" =~ ^[0-9]+$ ]] && echo "ok: the port is a number" || { echo "::error::MIKRUS_SSH_PORT is not a number"; bad=1; }
+          exit $bad
+
+      - name: SSH to Mikrus
+        env:
+          SSH_KEY: ${{ secrets.MIKRUS_SSH_KEY }}
+          KNOWN: ${{ secrets.MIKRUS_KNOWN_HOSTS }}
+          HOST: ${{ secrets.MIKRUS_HOST }}
+          PORT: ${{ secrets.MIKRUS_SSH_PORT }}
+          USER_NAME: ${{ secrets.MIKRUS_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/kc-deploy && chmod 600 ~/.ssh/kc-deploy
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/kc-deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 \
+            -p "$PORT" "${USER_NAME:-root}@$HOST" '
+              echo "ok: logged in as $(id -un) on $(hostname)"
+              . /etc/os-release && echo "system: $PRETTY_NAME"
+              echo "memory: $(free -m | awk "/Mem:/ {print \$2}") MB, free disk: $(df -h / | awk "NR==2 {print \$4}")"
+              ip6="$(ip -6 addr show scope global | awk "/inet6/ {print \$2}" | cut -d/ -f1 | head -1)"
+              [ -n "$ip6" ] && echo "ok: public IPv6 found" || { echo "::error::no public IPv6 address"; exit 1; }
+              command -v systemctl >/dev/null && echo "ok: systemd is there" || echo "::warning::no systemctl"
+              ls -d /usr/lib/jvm/*21* 2>/dev/null | head -1 | sed "s/^/java 21: /" || true
+              command -v caddy >/dev/null && echo "caddy: installed" || echo "caddy: not yet (install.sh adds it)"
+              ss -ltnpH 2>/dev/null | awk "{print \$4, \$6}" | grep -E ":(80|443|8080) " | sed "s/^/port in use: /" || true
+              for s in nginx apache2 caddy traefik haproxy docker; do systemctl is-active --quiet "$s" 2>/dev/null && echo "running service: $s"; done
+              if command -v docker >/dev/null; then
+                docker ps --format "container: {{.Names}} | image: {{.Image}} | ports: {{.Ports}}" 2>/dev/null || true
+                for c in $(docker ps -q --filter publish=443 2>/dev/null); do
+                  docker inspect -f "proxy on 443: {{.Name}} {{.Config.Image}} networks: {{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}" "$c" 2>/dev/null
+                  docker inspect -f "{{range .Mounts}}mount: {{.Source}} -> {{.Destination}}{{println}}{{end}}" "$c" 2>/dev/null
+                done
+              fi
+              f=/home/appuser/pointsapp/Caddyfile
+              if [ -f "$f" ]; then
+                echo "---- $f (site addresses and proxy targets only)"
+                grep -nE "^[^#[:space:]].*\{|reverse_proxy|tls |import |^\}" "$f" | sed "s/^/caddyfile: /"
+                ls /home/appuser/pointsapp/certs 2>/dev/null | sed "s/^/cert file: /"
+                ls /home/appuser/pointsapp 2>/dev/null | grep -iE "compose|docker" | sed "s/^/compose: /"
+              fi
+              [ -d /etc/nginx/sites-enabled ] && ls /etc/nginx/sites-enabled | sed "s/^/nginx site: /" || true
+            ' || { rc=$?; rm -f ~/.ssh/kc-deploy; echo "::error::SSH failed (exit $rc). 'Permission denied' means the key in MIKRUS_SSH_KEY is not in ~/.ssh/authorized_keys of user ${USER_NAME:-root}"; exit $rc; }
+          rm -f ~/.ssh/kc-deploy
+
+      - name: Cloudflare token
+        if: ${{ !cancelled() }}
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          api=https://api.cloudflare.com/client/v4
+          v="$(curl -sS -H "Authorization: Bearer $CF" "$api/user/tokens/verify")"
+          echo "$v" | jq -e '.success and .result.status == "active"' >/dev/null && echo "ok: the token is active" \
+            || { echo "::error::the token is not valid: $(echo "$v" | jq -c '.errors')"; exit 1; }
+          z="$(curl -sS -H "Authorization: Bearer $CF" "$api/zones?name=$ZONE")"
+          zone="$(echo "$z" | jq -r '.result[0].id // empty')"
+          [ -n "$zone" ] && echo "ok: the token sees $ZONE" || { echo "::error::the token cannot see $ZONE"; exit 1; }
+          r="$(curl -sS -H "Authorization: Bearer $CF" "$api/zones/$zone/dns_records?name=$DOMAIN")"
+          echo "$r" | jq -e '.success' >/dev/null && echo "ok: the token can read DNS records" || { echo "::error::cannot read DNS records"; exit 1; }
+          echo "records for $DOMAIN now: $(echo "$r" | jq -r '[.result[] | .type + (if .proxied then " (proxied)" else "" end)] | join(", ") | if . == "" then "none yet" else . end')"
+
+      - name: Cloudflare SSL rule
+        if: ${{ !cancelled() }}
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bash deploy/cloudflare-ssl.sh check

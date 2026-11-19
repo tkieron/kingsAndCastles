@@ -3,9 +3,36 @@ import type { ChronicleEvent, GameState, LedgerLine, Order } from '../types';
 
 const KINGDOM_PARAMS = new Set(['kingdom', 'by', 'from', 'to', 'with', 'a', 'b', 'vassal', 'attacker', 'defender', 'target']);
 
+/** Names the children gave their kingdoms, by kingdom id. Set from the lobby and from every game state. */
+const realms = new Map<string, string>();
+
+export function setRealms(list: { id: string; realm?: string }[]): void {
+  realms.clear();
+  for (const k of list) if (k.realm) realms.set(k.id, k.realm);
+}
+
+/** The name the child chose for the kingdom, or the kingdom's own name "z urzędu" when they left it empty. */
 export function kingdomName(id: string | undefined | null): string {
   if (!id) return '';
+  return realms.get(id) ?? defaultKingdomName(id);
+}
+
+/** The kingdom's own name in the chosen language. */
+export function defaultKingdomName(id: string): string {
   return hasKey(`k.${id}`) ? t(`k.${id}`) : id;
+}
+
+const PLACE_PARAMS = new Set(['village', 'castle', 'settlement']);
+
+/** The name of a castle or village in the chosen language (the server names them in English; new villages keep the child's name). */
+export function placeName(name: string | undefined | null): string {
+  if (!name) return '';
+  return hasKey(`place.${name}`) ? t(`place.${name}`) : name;
+}
+
+/** Who plays a kingdom: the child's name, or the computer level. */
+export function playerLabel(k: { playerName?: string; controller: string }): string {
+  return k.controller === 'HUMAN' ? k.playerName ?? '' : t(`ctl.${k.controller}`);
 }
 
 /** Turns raw values from the server (kingdom ids, BUILDING names…) into words in the chosen language. */
@@ -16,6 +43,8 @@ export function niceParams(params: Record<string, unknown>): Record<string, unkn
       out[name] = value;
     } else if (KINGDOM_PARAMS.has(name)) {
       out[name] = kingdomName(value);
+    } else if (PLACE_PARAMS.has(name)) {
+      out[name] = placeName(value);
     } else if (name === 'winners') {
       out[name] = value.split(',').filter(Boolean).map(kingdomName).join(', ');
     } else if (hasKey(`b.${value}`)) {
@@ -39,7 +68,7 @@ export function eventText(e: ChronicleEvent): string {
     p.result = t(e.params.attackerWins ? 'chronicle.attackerWon' : 'chronicle.defenderWon');
   }
   if (e.key === 'chronicle.built') {
-    p.where = e.params.settlement ? t('where.at', { settlement: e.params.settlement }) : '';
+    p.where = e.params.settlement ? t('where.at', { settlement: p.settlement }) : '';
   }
   return t(e.key, p);
 }
@@ -49,7 +78,7 @@ export function ledgerText(l: LedgerLine): string {
 }
 
 export function orderText(o: Order, s: GameState): string {
-  const settlement = (id: number) => s.settlements.find((x) => x.id === id)?.name ?? '?';
+  const settlement = (id: number) => placeName(s.settlements.find((x) => x.id === id)?.name) || '?';
   const unit = (id: number) => {
     const u = s.units.find((x) => x.id === id);
     return u ? t(`u.${u.type}`) : '?';
@@ -83,6 +112,8 @@ export function orderText(o: Order, s: GameState): string {
       return t('o.proposeTreaty', { type: t(`t.${o.type}`), to: kingdomName(o.to) });
     case 'acceptTreaty':
       return t('o.acceptTreaty', { type: t(`t.${o.type}`), from: kingdomName(o.from) });
+    case 'rejectTreaty':
+      return t('o.rejectTreaty', { type: t(`t.${o.type}`), from: kingdomName(o.from) });
     case 'breakTreaty':
       return t('o.breakTreaty', { type: t(`t.${o.type}`), with: kingdomName(o.with) });
   }

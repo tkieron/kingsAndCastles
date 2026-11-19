@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import pl.kingscastles.engine.Balance;
 import pl.kingscastles.engine.Game;
@@ -58,9 +60,30 @@ public class RoomService {
         return t;
     });
     private final SecureRandom random = new SecureRandom();
+    private final int maxRooms;
+    private final long idleMillis;
 
+    /** For tests: generous limits. */
     public RoomService(RoomStore store) {
+        this(store, 500, 14);
+    }
+
+    /**
+     * The server is open to anyone on the internet, so it keeps at most {@code maxRooms} rooms and forgets rooms
+     * nobody touched for {@code idleDays} days. Otherwise creating rooms in a loop would fill the memory and the disk.
+     */
+    @Autowired
+    public RoomService(RoomStore store, @Value("${kc.max-rooms:500}") int maxRooms, @Value("${kc.room-idle-days:14}") int idleDays) {
         this.store = store;
+        this.maxRooms = maxRooms;
+        this.idleMillis = TimeUnit.DAYS.toMillis(idleDays);
+        clock.scheduleWithFixedDelay(() -> {
+            try {
+                removeIdleRooms(System.currentTimeMillis());
+            } catch (RuntimeException e) {
+                log.warn("Cleaning idle rooms failed", e);
+            }
+        }, 1, 1, TimeUnit.HOURS);
     }
 
     public void addListener(Listener l) {
@@ -69,7 +92,13 @@ public class RoomService {
 
     @PostConstruct
     void loadSavedRooms() {
+        long now = System.currentTimeMillis();
         for (RoomRecord r : store.loadAll()) {
+            if (isIdle(r, now)) {
+                store.delete(r.code);
+                log.info("Removed idle room {}", r.code);
+                continue;
+            }
             Room room = new Room(r);
             try {
                 if (r.status != RoomRecord.Status.LOBBY) {
@@ -93,7 +122,14 @@ public class RoomService {
 
     // ------------------------------------------------------------------ lobby
 
-    public Room create(RoomSettings settings) {
+    public synchronized Room create(RoomSettings settings) {
+        if (rooms.size() >= maxRooms) {
+            removeIdleRooms(System.currentTimeMillis());
+            if (rooms.size() >= maxRooms) {
+                log.warn("Room limit reached ({} rooms)", rooms.size());
+                throw new GameException("error.serverFull");
+            }
+        }
         RoomRecord r = new RoomRecord();
         r.code = newCode();
         r.hostToken = UUID.randomUUID().toString();
@@ -115,10 +151,22 @@ public class RoomService {
     }
 
     public Player join(String code, String name) {
+        return join(code, name, null, 0);
+    }
+
+    /** @param realm the kingdom's name chosen by the child; empty keeps the kingdom's own name */
+    public Player join(String code, String name, String realm, int avatar) {
         Room room = room(code);
         String clean = name == null ? "" : name.strip();
         if (clean.isEmpty() || clean.length() > 20) {
             throw new GameException("error.badName");
+        }
+        String realmName = realm == null ? "" : realm.strip();
+        if (realmName.length() > Player.REALM_MAX) {
+            throw new GameException("error.badRealm");
+        }
+        if (avatar < 0 || avatar >= Player.AVATARS) {
+            throw new GameException("error.badRequest");
         }
         Player p;
         synchronized (room) {
@@ -136,7 +184,7 @@ public class RoomService {
             if (seat < 0) {
                 throw new GameException("error.roomFull");
             }
-            p = new Player(UUID.randomUUID().toString(), clean, seat);
+            p = new Player(UUID.randomUUID().toString(), clean, seat, realmName.isEmpty() ? null : realmName, avatar);
             room.record.players.add(p);
             store.save(room.record);
         }
@@ -316,6 +364,38 @@ public class RoomService {
             g.endTurn();
         }
         return g;
+    }
+
+    private boolean isIdle(RoomRecord r, long now) {
+        long last = Math.max(r.updatedAt, r.createdAt);
+        return now - last > idleMillis;
+    }
+
+    /** Forgets rooms nobody touched for a long time: from memory and from the disk. */
+    synchronized int removeIdleRooms(long now) {
+        int removed = 0;
+        for (Room room : List.copyOf(rooms.values())) {
+            synchronized (room) {
+                if (!isIdle(room.record, now)) {
+                    continue;
+                }
+                if (room.timer != null) {
+                    room.timer.cancel(false);
+                    room.timer = null;
+                }
+                rooms.remove(room.code());
+                store.delete(room.code());
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            log.info("Removed {} idle rooms", removed);
+        }
+        return removed;
+    }
+
+    int roomCount() {
+        return rooms.size();
     }
 
     private String newCode() {
