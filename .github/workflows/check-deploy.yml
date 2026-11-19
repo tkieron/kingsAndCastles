@@ -65,6 +65,8 @@ jobs:
               command -v caddy >/dev/null && echo "caddy: installed" || echo "caddy: not yet (install.sh adds it)"
               ss -ltnpH 2>/dev/null | awk "{print \$4, \$6}" | grep -E ":(80|443|8080) " | sed "s/^/port in use: /" || true
               for s in nginx apache2 caddy traefik haproxy docker; do systemctl is-active --quiet "$s" 2>/dev/null && echo "running service: $s"; done
+              for p in 8090; do echo "local port $p: $(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$p/)"; done
+              docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null | sed "s/^/status: /" || true
               if command -v docker >/dev/null; then
                 docker ps --format "container: {{.Names}} | image: {{.Image}} | ports: {{.Ports}}" 2>/dev/null || true
                 for c in $(docker ps -q --filter publish=443 2>/dev/null); do
@@ -104,3 +106,34 @@ jobs:
         env:
           CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: bash deploy/cloudflare-ssl.sh check
+
+      - name: The live sites from the internet
+        if: ${{ !cancelled() }}
+        run: |
+          for u in https://pointsapp.pl/ https://www.pointsapp.pl/ https://$DOMAIN/ https://$DOMAIN/api/rules; do
+            echo "$u -> $(curl -s -o /dev/null -w '%{http_code}' -m 20 "$u")"
+          done
+          curl -sI "https://$DOMAIN/" | grep -iE "^(HTTP|strict-transport|x-frame|x-content|cache-control)" || true
+
+      - uses: actions/setup-node@v4
+        if: ${{ !cancelled() }}
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Play a turn on the live game
+        if: ${{ !cancelled() }}
+        working-directory: client
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          KC_URL=https://$DOMAIN npm run e2e
+
+      - name: Screenshots from the live game
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-screenshots
+          path: client/e2e/out/
+          if-no-files-found: ignore
