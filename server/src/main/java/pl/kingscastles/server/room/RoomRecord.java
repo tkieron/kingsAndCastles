@@ -11,6 +11,8 @@ public class RoomRecord {
     public String hostToken;
     public long seed;
     public long createdAt;
+    /** When the room was last saved; rooms nobody touched for a long time are removed. */
+    public long updatedAt;
     public Status status = Status.LOBBY;
     public RoomSettings settings;
     public List<Player> players = new ArrayList<>();

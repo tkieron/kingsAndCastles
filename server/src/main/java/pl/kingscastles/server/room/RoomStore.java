@@ -31,11 +31,20 @@ public class RoomStore {
     public synchronized void save(RoomRecord r) {
         try {
             Files.createDirectories(dir);
+            r.updatedAt = System.currentTimeMillis();
             Path tmp = dir.resolve(r.code + ".json.tmp");
             json.writeValue(tmp.toFile(), r);
             Files.move(tmp, dir.resolve(r.code + ".json"), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             throw new UncheckedIOException("Could not save room " + r.code, e);
+        }
+    }
+
+    public synchronized void delete(String code) {
+        try {
+            Files.deleteIfExists(dir.resolve(code + ".json"));
+        } catch (IOException e) {
+            log.warn("Could not delete room file {}", code, e);
         }
     }
 
