@@ -32,12 +32,14 @@ import java.util.concurrent.ConcurrentHashMap;
  *   {"type":"orders","orders":[{"order":"build",...}]}  replaces this turn's orders
  *   {"type":"ready","ready":true}
  *   {"type":"endTurn"}                                  host only
+ *   {"type":"pause","paused":true}                      freeze the game (false: carry on); a child or the host
  *   {"type":"ping"}
  * server → client
  *   {"type":"lobby",...}   {"type":"state",...}   {"type":"ready","ready":[...]}
  *   {"type":"problems","problems":[...]}   {"type":"ordersOk"}   {"type":"error","error":"error.key"}   {"type":"pong"}
  * </pre>
- * A new "state" is sent to everyone when a turn ends; it carries last turn's report.
+ * A new "state" is sent to everyone when a turn ends or the game is frozen or resumed; it carries last turn's report.
+ * When the last screen of a timed game disconnects, the game freezes itself after a short wait (see RoomService).
  */
 @Component
 public class GameSocket extends TextWebSocketHandler implements RoomService.Listener {
@@ -65,7 +67,10 @@ public class GameSocket extends TextWebSocketHandler implements RoomService.List
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        clients.remove(session.getId());
+        Client c = clients.remove(session.getId());
+        if (c != null) {
+            rooms.disconnected(c.code);
+        }
     }
 
     @Override
@@ -90,6 +95,10 @@ public class GameSocket extends TextWebSocketHandler implements RoomService.List
                     Client c = client(session);
                     rooms.hostEndTurn(c.code, c.token);
                 }
+                case "pause" -> {
+                    Client c = client(session);
+                    rooms.pause(c.code, c.token, msg.path("paused").asBoolean(true));
+                }
                 case "ping" -> send(session, Map.of("type", "pong"));
                 default -> send(session, Map.of("type", "error", "error", "error.badRequest"));
             }
@@ -112,7 +121,11 @@ public class GameSocket extends TextWebSocketHandler implements RoomService.List
         } else {
             throw new GameException("error.notInRoom");
         }
-        clients.put(session.getId(), c);
+        Client before = clients.put(session.getId(), c);
+        rooms.connected(code);
+        if (before != null) {
+            rooms.disconnected(before.code);
+        }
         sendView(c);
     }
 
@@ -147,7 +160,7 @@ public class GameSocket extends TextWebSocketHandler implements RoomService.List
                 continue;
             }
             switch (change) {
-                case LOBBY, TURN -> sendView(c);
+                case LOBBY, TURN, PAUSE -> sendView(c);
                 case READY -> send(c.session, Map.of("type", "ready", "ready", room.ready()));
                 case ORDERS -> {
                     // others only learn that someone changed their mind when they press Ready; nothing to send

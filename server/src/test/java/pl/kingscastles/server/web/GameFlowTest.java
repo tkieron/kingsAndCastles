@@ -108,6 +108,22 @@ class GameFlowTest {
         JsonNode rest = json.readTree(http.exchange("/api/rooms/" + code + "/state", HttpMethod.GET,
                 new HttpEntity<>(headers(RoomController.PLAYER, token)), String.class).getBody());
         assertEquals(2, rest.get("turn").asInt());
+        assertFalse(rest.get("paused").asBoolean());
+
+        // Ania freezes the game: everyone gets the new state, and Ready waits until someone carries on
+        ws.sendMessage(new TextMessage("{\"type\":\"pause\",\"paused\":true}"));
+        JsonNode frozen = next(inbox);
+        assertTrue(frozen.at("/state/paused").asBoolean());
+        assertEquals("fox", frozen.at("/state/pausedBy").asText());
+        ws.sendMessage(new TextMessage("{\"type\":\"ready\",\"ready\":true}"));
+        assertEquals("error.paused", next(inbox).get("error").asText());
+        // a stranger cannot carry on, the host can (over REST too)
+        assertEquals("error.notInRoom",
+                post("/api/rooms/" + code + "/pause", "{\"paused\":false}", RoomController.PLAYER, "nope").get("error").asText());
+        post("/api/rooms/" + code + "/pause", "{\"paused\":false}", RoomController.HOST, host);
+        JsonNode resumed = next(inbox);
+        assertFalse(resumed.at("/state/paused").asBoolean());
+        assertFalse(resumed.at("/state").has("pausedBy"));
 
         ws.close();
     }

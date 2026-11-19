@@ -220,4 +220,160 @@ class RoomServiceTest {
         assertEquals(0, second.roomCount());
         assertFalse(Files.exists(file));
     }
+
+    // ------------------------------------------------------------------ freezing a game
+
+    private static final RoomSettings TWO_CHILDREN_30_SECONDS =
+            new RoomSettings(30, 10, TWO_CHILDREN_NO_CLOCK.seats(), Controller.AI_BEGINNER);
+
+    @Test
+    void aFrozenGameStopsTheClockAndWaitsUntilSomeoneCarriesOn() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_30_SECONDS);
+        Player ania = s.join(room.code(), "Ania");
+        Player bartek = s.join(room.code(), "Bartek");
+        s.start(room.code(), room.record.hostToken);
+        s.submitOrders(room.code(), ania.token(), List.of(new Order.SetTax(TaxRate.HIGH)));
+        s.ready(room.code(), bartek.token(), true);
+        List<RoomService.Change> changes = new ArrayList<>();
+        s.addListener((r, c) -> changes.add(c));
+
+        assertEquals("error.notInRoom", assertThrows(GameException.class, () -> s.pause(room.code(), "stranger", true)).key);
+        s.pause(room.code(), ania.token(), true);
+        assertTrue(room.paused());
+        assertEquals("fox", room.record.pausedBy);
+        assertNull(room.turnEndsAt(), "the clock stands still");
+        assertNull(room.timer);
+        assertTrue(room.ready().isEmpty(), "Bartek presses Ready again after the break");
+        assertEquals(List.of(RoomService.Change.PAUSE), changes);
+
+        assertEquals("error.paused", assertThrows(GameException.class, () -> s.ready(room.code(), ania.token(), true)).key);
+        assertEquals("error.paused", assertThrows(GameException.class,
+                () -> s.submitOrders(room.code(), ania.token(), List.of(new Order.SetTax(TaxRate.LOW)))).key);
+        assertEquals("error.paused", assertThrows(GameException.class,
+                () -> s.hostEndTurn(room.code(), room.record.hostToken)).key);
+        s.endTurn(room, 1);
+        assertEquals(1, room.game.state().turn, "a clock that was already running does not end a frozen turn");
+
+        s.pause(room.code(), ania.token(), true);
+        assertEquals(1, changes.size(), "freezing a frozen game changes nothing");
+
+        long before = System.currentTimeMillis();
+        s.pause(room.code(), room.record.hostToken, false);
+        assertFalse(room.paused());
+        assertNull(room.record.pausedBy);
+        assertTrue(room.turnEndsAt() >= before + 29_000, "the turn gets its full time again");
+        assertNotNull(room.timer);
+        assertEquals(List.of(new Order.SetTax(TaxRate.HIGH)), room.game.ordersOf("fox"), "Ania's move is still there");
+        s.stop();
+    }
+
+    @Test
+    void aFrozenGameStaysFrozenAfterARestartWithItsOrders() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_30_SECONDS);
+        Player ania = s.join(room.code(), "Ania");
+        s.start(room.code(), room.record.hostToken);
+        s.hostEndTurn(room.code(), room.record.hostToken);
+        s.submitOrders(room.code(), ania.token(), List.of(new Order.SetTax(TaxRate.LOW)));
+        s.pause(room.code(), room.record.hostToken, true);
+        assertEquals(RoomRecord.BY_HOST, room.record.pausedBy);
+        s.stop();
+
+        RoomService restarted = service();
+        Room back = restarted.room(room.code());
+        assertTrue(back.paused());
+        assertEquals(2, back.game.state().turn);
+        assertNull(back.turnEndsAt());
+        assertNull(back.timer);
+        assertNull(back.autoPause, "a frozen game needs no automatic pause");
+        assertEquals(List.of(new Order.SetTax(TaxRate.LOW)), back.game.ordersOf("fox"));
+
+        restarted.pause(room.code(), ania.token(), false);
+        assertNotNull(back.turnEndsAt());
+        assertNull(back.record.pausedOrders, "nothing is kept twice once the game runs again");
+        restarted.stop();
+    }
+
+    @Test
+    void aFrozenGameIsKeptLongerThanAnIdleOne() {
+        RoomService s = new RoomService(new RoomStore(dir.toString()), 10, 14, 30, 90);
+        s.loadSavedRooms();
+        Room frozen = s.create(TWO_CHILDREN_30_SECONDS);
+        s.join(frozen.code(), "Ania");
+        s.start(frozen.code(), frozen.record.hostToken);
+        s.pause(frozen.code(), frozen.record.hostToken, true);
+        Room idle = s.create(TWO_CHILDREN_NO_CLOCK);
+
+        long day = java.util.concurrent.TimeUnit.DAYS.toMillis(1);
+        assertEquals(1, s.removeIdleRooms(System.currentTimeMillis() + 15 * day));
+        assertEquals("error.noSuchRoom", assertThrows(GameException.class, () -> s.room(idle.code())).key);
+        assertSame(frozen, s.room(frozen.code()), "a two-week break does not lose the game");
+        assertEquals(1, s.removeIdleRooms(System.currentTimeMillis() + 31 * day));
+        s.stop();
+    }
+
+    @Test
+    void aTimedGameFreezesItselfWhenEveryoneHasLeft() throws Exception {
+        RoomService s = new RoomService(new RoomStore(dir.toString()), 10, 14, 30, 1);
+        s.loadSavedRooms();
+        Room room = s.create(TWO_CHILDREN_30_SECONDS);
+        Player ania = s.join(room.code(), "Ania");
+        s.start(room.code(), room.record.hostToken);
+        s.connected(room.code());
+        s.connected(room.code());
+        s.disconnected(room.code());
+        assertNull(room.autoPause, "one screen is still here");
+
+        // a reload: the screen goes and comes back within the wait, nothing freezes
+        s.disconnected(room.code());
+        assertNotNull(room.autoPause);
+        s.connected(room.code());
+        assertNull(room.autoPause);
+
+        s.disconnected(room.code());
+        long until = System.currentTimeMillis() + 5_000;
+        while (!room.paused() && System.currentTimeMillis() < until) {
+            Thread.sleep(50);
+        }
+        assertTrue(room.paused());
+        assertEquals(RoomRecord.BY_NOBODY, room.record.pausedBy);
+        assertNull(room.turnEndsAt());
+
+        // when someone comes back they press Resume, and the clock starts again
+        s.connected(room.code());
+        assertTrue(room.paused(), "coming back does not start the clock by itself");
+        s.pause(room.code(), ania.token(), false);
+        assertNotNull(room.turnEndsAt());
+        s.stop();
+    }
+
+    @Test
+    void aGameWithoutAClockNeverFreezesByItself() {
+        RoomService s = new RoomService(new RoomStore(dir.toString()), 10, 14, 30, 1);
+        s.loadSavedRooms();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        s.join(room.code(), "Ania");
+        s.start(room.code(), room.record.hostToken);
+        s.connected(room.code());
+        s.disconnected(room.code());
+        assertNull(room.autoPause, "without a turn clock nothing happens while everyone is away");
+        s.stop();
+    }
+
+    @Test
+    void freezingInALoopIsStoppedSoTheDiskStaysCalm() {
+        RoomService s = service();
+        Room room = s.create(TWO_CHILDREN_NO_CLOCK);
+        Player ania = s.join(room.code(), "Ania");
+        s.start(room.code(), room.record.hostToken);
+        for (int i = 0; i < RoomService.PAUSES_PER_WINDOW; i++) {
+            s.pause(room.code(), ania.token(), i % 2 == 0);
+        }
+        assertEquals("error.tooFast", assertThrows(GameException.class, () -> s.pause(room.code(), ania.token(), true)).key);
+        room.pauseWindowStart -= RoomService.PAUSE_WINDOW_MILLIS + 1;
+        s.pause(room.code(), ania.token(), true);
+        assertTrue(room.paused(), "a minute later it works again");
+        s.stop();
+    }
 }

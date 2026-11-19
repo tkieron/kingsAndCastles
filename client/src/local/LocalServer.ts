@@ -25,6 +25,11 @@ interface RoomRecord {
   settings: RoomSettings;
   players: Player[];
   turns: TurnRecord[];
+  /** Frozen: the clock stands still until someone carries on. */
+  paused?: boolean;
+  pausedBy?: string;
+  /** This turn's orders given before the freeze, so they come back after a reload. */
+  pausedOrders?: Record<string, Order[]>;
 }
 
 type Listener = { token?: string; hostToken?: string; send: (m: ServerMessage) => void };
@@ -59,7 +64,8 @@ function load(): void {
     room = JSON.parse(raw) as RoomRecord;
     if (room.status !== 'LOBBY') {
       replay(room);
-      if (room.status === 'PLAYING') startClock();
+      for (const [k, o] of Object.entries(room.pausedOrders ?? {})) engine.submit(k, JSON.stringify(o));
+      if (room.status === 'PLAYING' && !room.paused) startClock();
     }
   } catch {
     room = null;
@@ -106,6 +112,7 @@ function requireHost(r: RoomRecord, hostToken?: string): void {
 
 function playingKingdom(r: RoomRecord, tok?: string): string {
   if (r.status !== 'PLAYING') throw new LocalError('error.notPlaying');
+  if (r.paused) throw new LocalError('error.paused');
   const p = r.players.find((x) => x.token === tok);
   if (!p) throw new LocalError('error.notInRoom');
   return kingdomOfSeat(p.seat);
@@ -138,6 +145,8 @@ function stateView(r: RoomRecord, me: string | null): GameState {
     turnEndsAt,
     turnSeconds: r.settings.turnSeconds,
     ready: [...ready],
+    paused: !!r.paused,
+    ...(r.paused && r.pausedBy ? { pausedBy: r.pausedBy } : {}),
   };
 }
 
@@ -172,7 +181,7 @@ function startClock(): void {
 
 function endTurn(turn: number): void {
   const r = room;
-  if (!r || r.status !== 'PLAYING' || engine.turn() !== turn) return;
+  if (!r || r.status !== 'PLAYING' || r.paused || engine.turn() !== turn) return;
   window.clearTimeout(timer);
   r.turns.push({ orders: JSON.parse(engine.humanOrders()), present: JSON.parse(engine.present()) });
   engine.endTurn();
@@ -314,7 +323,35 @@ export class LocalConnection {
     this.guard((r) => {
       requireHost(r, this.listener.hostToken);
       if (r.status !== 'PLAYING') throw new LocalError('error.notPlaying');
+      if (r.paused) throw new LocalError('error.paused');
       endTurn(engine.turn());
+    });
+  }
+
+  /** Freezes the game or carries on, like RoomService.pause on the server. */
+  pause(paused: boolean): void {
+    this.guard((r) => {
+      if (r.status !== 'PLAYING') throw new LocalError('error.notPlaying');
+      const host = !!this.listener.hostToken && this.listener.hostToken === r.hostToken;
+      const p = r.players.find((x) => x.token === this.listener.token);
+      if (!p && !host) throw new LocalError('error.notInRoom');
+      if (paused === !!r.paused) return;
+      if (paused) {
+        window.clearTimeout(timer);
+        turnEndsAt = undefined;
+        const orders = JSON.parse(engine.humanOrders()) as Record<string, Order[]>;
+        r.paused = true;
+        r.pausedBy = p ? kingdomOfSeat(p.seat) : 'host';
+        r.pausedOrders = Object.keys(orders).length ? orders : undefined;
+        ready = new Set();
+      } else {
+        delete r.paused;
+        delete r.pausedBy;
+        delete r.pausedOrders;
+        startClock();
+      }
+      save();
+      fire('view');
     });
   }
 

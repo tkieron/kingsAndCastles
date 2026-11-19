@@ -64,6 +64,8 @@ export class GameScreen {
   private readonly sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-live': 'polite' });
   private readonly mapWrap = h('div', { class: 'map-wrap' });
   private summary?: HTMLElement;
+  /** The card over everything while the game is frozen. */
+  private frozen?: HTMLElement;
   /** Tabs the child has opened, so a tab that appears later can say "New!" until then. */
   private readonly seenTabs = new Set<Tab>(['move', 'ledger', 'chronicle']);
   private blink = false;
@@ -102,6 +104,7 @@ export class GameScreen {
     this.tutorial?.close();
     this.summary?.remove();
     this.intro?.remove();
+    this.frozen?.remove();
   }
 
   /**
@@ -169,6 +172,7 @@ export class GameScreen {
         } else if (!this.summary && !this.tutorial) {
           this.showIntro();
         }
+        this.showFrozen();
         return;
       }
       case 'ready':
@@ -523,11 +527,15 @@ export class GameScreen {
       this.header.append(logo);
       return;
     }
-    this.timeEl = h('span', { class: 'big-num gold-light' }, s.turnEndsAt ? '' : t('game.noLimit'));
+    this.timeEl = h('span', { class: 'big-num gold-light' }, s.turnEndsAt ? '' : s.paused ? `❄ ${t('pause.short')}` : t('game.noLimit'));
     this.barEl = h('div', { class: 'bar-fill' });
     const help = this.me() ? h('button', {
       class: 'btn small help', title: t('tut.help'), 'aria-label': t('tut.help'), onclick: () => this.showTutorial(true),
     }, '?') : null;
+    // anyone at the table may freeze a running game: the clock stops and the game waits, even for days
+    const freeze = (this.me() || this.host) && !s.finished && s.status === 'PLAYING' && !s.paused ? h('button', {
+      class: 'btn small freeze', title: t('pause.freeze'), 'aria-label': t('pause.freeze'), onclick: () => this.conn.pause(true),
+    }, '❄') : null;
     const fold = h('button', {
       class: 'btn small fold', 'aria-expanded': String(this.barOpen),
       title: t(this.barOpen ? 'bar.collapse' : 'bar.expand'), 'aria-label': t(this.barOpen ? 'bar.collapse' : 'bar.expand'),
@@ -547,7 +555,7 @@ export class GameScreen {
         h('span', { class: 'mini', title: t('game.turnOf', { season: season(s.turn), turn: s.turn, max: s.maxTurns }) },
           '📅 ', h('span', { class: 'season-text' }, `${season(s.turn)} `), h('b', {}, `${s.turn}/${s.maxTurns}`)),
         // without a turn clock there is nothing to count down: no need to say so in the folded bar
-        ...(s.turnEndsAt ? [h('span', { class: 'mini', title: t('w.time') }, '⏳ ', this.timeEl)] : []),
+        ...(s.turnEndsAt || s.paused ? [h('span', { class: 'mini', title: t('w.time') }, s.paused ? '' : '⏳ ', this.timeEl)] : []),
         ...(me ? [
           h('span', { class: 'mini me-mini', title: playerLabel(me) },
             h('span', { class: 'chip-avatar', style: `border-color:${me.color}` }, avatarSvg(me.avatar, 22)), h('b', {}, kingdomName(me.id))),
@@ -558,7 +566,7 @@ export class GameScreen {
         ] : []),
         h('span', { class: 'spacer' }),
         ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
-        fold, ...(help ? [help] : []));
+        ...(freeze ? [freeze] : []), fold, ...(help ? [help] : []));
       this.tick();
       return;
     }
@@ -584,7 +592,7 @@ export class GameScreen {
           h('span', {}, `${k.prestige} · `, h('i', { class: ready ? 'good' : '' }, state))));
       })),
       ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
-      fold, ...(help ? [help] : []),
+      ...(freeze ? [freeze] : []), fold, ...(help ? [help] : []),
     );
     this.tick();
   }
@@ -1380,6 +1388,31 @@ export class GameScreen {
     document.body.append(this.summary);
     window.addEventListener('keydown', onKey);
     next.focus();
+  }
+
+  /** While the game is frozen: a card over everything that says who froze it, with the button to carry on. */
+  private showFrozen(): void {
+    const s = this.state;
+    if (!s?.paused || s.finished) {
+      this.frozen?.remove();
+      this.frozen = undefined;
+      return;
+    }
+    const by = s.pausedBy === 'auto' ? t('pause.byNobody')
+      : s.pausedBy === 'host' ? t('pause.byHost')
+        : s.pausedBy ? t('pause.byKingdom', { name: kingdomName(s.pausedBy) }) : '';
+    const resume = h('button', { class: 'btn-ready', onclick: () => this.conn.pause(false) }, t('pause.resume'));
+    this.frozen?.remove();
+    this.frozen = h('div', { class: 'tut dim frozen', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('pause.title') },
+      h('div', { class: 'tut-card middle' },
+        h('div', { class: 'title' }, t('pause.title')),
+        by ? h('p', {}, by) : null,
+        h('p', { class: 'small' }, t('pause.text')),
+        // no "Leave" here: leaving forgets this device's seat, and after a break the child wants to come back to it
+        h('div', { class: 'tut-buttons' }, resume)));
+    // appended last, so it stays above a turn summary or the offers card
+    document.body.append(this.frozen);
+    resume.focus();
   }
 
   private readyBox(): HTMLElement {

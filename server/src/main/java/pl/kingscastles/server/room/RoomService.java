@@ -36,7 +36,7 @@ public class RoomService {
     private static final Logger log = LoggerFactory.getLogger(RoomService.class);
 
     /** What changed in a room, so connected players can be told. */
-    public enum Change { LOBBY, ORDERS, READY, TURN }
+    public enum Change { LOBBY, ORDERS, READY, TURN, PAUSE }
 
     public interface Listener {
         void roomChanged(Room room, Change change);
@@ -62,21 +62,37 @@ public class RoomService {
     private final SecureRandom random = new SecureRandom();
     private final int maxRooms;
     private final long idleMillis;
+    private final long pausedIdleMillis;
+    static final int PAUSES_PER_WINDOW = 10;
+    static final long PAUSE_WINDOW_MILLIS = 60_000;
+    private final long autoPauseMillis;
 
     /** For tests: generous limits. */
     public RoomService(RoomStore store) {
-        this(store, 500, 14);
+        this(store, 500, 14, 30, 90);
     }
 
     /**
      * The server is open to anyone on the internet, so it keeps at most {@code maxRooms} rooms and forgets rooms
      * nobody touched for {@code idleDays} days. Otherwise creating rooms in a loop would fill the memory and the disk.
      */
+    public RoomService(RoomStore store, int maxRooms, int idleDays) {
+        this(store, maxRooms, idleDays, 30, 90);
+    }
+
+    /**
+     * @param pausedIdleDays a frozen game waits this long for the children to come back (a holiday is longer than 14 days)
+     * @param autoPauseSeconds a timed game freezes itself when no screen has been connected for this long
+     */
     @Autowired
-    public RoomService(RoomStore store, @Value("${kc.max-rooms:500}") int maxRooms, @Value("${kc.room-idle-days:14}") int idleDays) {
+    public RoomService(RoomStore store, @Value("${kc.max-rooms:500}") int maxRooms, @Value("${kc.room-idle-days:14}") int idleDays,
+                       @Value("${kc.paused-room-days:30}") int pausedIdleDays,
+                       @Value("${kc.auto-pause-seconds:90}") int autoPauseSeconds) {
         this.store = store;
         this.maxRooms = maxRooms;
         this.idleMillis = TimeUnit.DAYS.toMillis(idleDays);
+        this.pausedIdleMillis = TimeUnit.DAYS.toMillis(Math.max(idleDays, pausedIdleDays));
+        this.autoPauseMillis = TimeUnit.SECONDS.toMillis(Math.max(1, autoPauseSeconds));
         clock.scheduleWithFixedDelay(() -> {
             try {
                 removeIdleRooms(System.currentTimeMillis());
@@ -104,9 +120,14 @@ public class RoomService {
                 if (r.status != RoomRecord.Status.LOBBY) {
                     room.game = replay(r);
                 }
+                if (r.paused && r.pausedOrders != null) {
+                    r.pausedOrders.forEach(room.game::submit);
+                }
                 rooms.put(r.code, room);
-                if (r.status == RoomRecord.Status.PLAYING) {
+                if (r.status == RoomRecord.Status.PLAYING && !r.paused) {
                     startTurnClock(room);
+                    // after a restart nobody is connected yet: if nobody comes back, the game freezes
+                    scheduleAutoPause(room);
                 }
                 log.info("Loaded room {} ({}, turn {})", r.code, r.status, r.turns.size() + 1);
             } catch (RuntimeException e) {
@@ -253,6 +274,9 @@ public class RoomService {
             if (room.record.status != RoomRecord.Status.PLAYING) {
                 throw new GameException("error.notPlaying");
             }
+            if (room.record.paused) {
+                throw new GameException("error.paused");
+            }
             turn = room.game.state().turn;
         }
         endTurn(room, turn);
@@ -274,7 +298,7 @@ public class RoomService {
      */
     void endTurn(Room room, int turn) {
         synchronized (room) {
-            if (room.record.status != RoomRecord.Status.PLAYING || room.game.state().turn != turn) {
+            if (room.record.status != RoomRecord.Status.PLAYING || room.record.paused || room.game.state().turn != turn) {
                 return;
             }
             if (room.timer != null) {
@@ -310,13 +334,156 @@ public class RoomService {
         }
         room.turnEndsAt = System.currentTimeMillis() + seconds * 1000L;
         int turn = room.game.state().turn;
+        long run = ++room.clockRun;
         room.timer = clock.schedule(() -> {
             try {
+                synchronized (room) {
+                    // a pause and a resume in between started a new clock for the same turn: this one is stale
+                    if (room.clockRun != run) {
+                        return;
+                    }
+                }
                 endTurn(room, turn);
             } catch (RuntimeException e) {
                 log.error("Turn end failed in room {}", room.code(), e);
             }
         }, seconds, TimeUnit.SECONDS);
+    }
+
+    private static void stopTurnClock(Room room) {
+        room.clockRun++;
+        if (room.timer != null) {
+            room.timer.cancel(false);
+            room.timer = null;
+        }
+        room.turnEndsAt = null;
+    }
+
+    // ------------------------------------------------------------------ freezing a game
+
+    /**
+     * Freezes or unfreezes the game. Any child in the room or the host may do it. While frozen the turn clock stands
+     * still, orders and Ready are refused, and the room is kept for longer. Resume gives the turn its full time again.
+     * Children who were ready have to press Ready again, so nobody's turn ends while they are away.
+     *
+     * @param token a player token or the host token
+     */
+    public void pause(String code, String token, boolean pause) {
+        Room room = room(code);
+        synchronized (room) {
+            if (room.record.status != RoomRecord.Status.PLAYING || room.game == null) {
+                throw new GameException("error.notPlaying");
+            }
+            String by;
+            if (token != null && room.isHost(token)) {
+                by = RoomRecord.BY_HOST;
+            } else {
+                by = kingdomOf(room, token).orElseThrow(() -> new GameException("error.notInRoom"));
+            }
+            if (pause == room.record.paused) {
+                return;
+            }
+            // every change is written to the disk: pressing the button in a loop must not keep the disk busy
+            long now = System.currentTimeMillis();
+            if (now - room.pauseWindowStart > PAUSE_WINDOW_MILLIS) {
+                room.pauseWindowStart = now;
+                room.pauseChanges = 0;
+            }
+            if (++room.pauseChanges > PAUSES_PER_WINDOW) {
+                throw new GameException("error.tooFast");
+            }
+            if (pause) {
+                freeze(room, by);
+            } else {
+                room.record.paused = false;
+                room.record.pausedBy = null;
+                room.record.pausedOrders = null;
+                startTurnClock(room);
+                if (room.connections == 0) {
+                    scheduleAutoPause(room);
+                }
+            }
+            store.save(room.record);
+        }
+        fire(room, Change.PAUSE);
+    }
+
+    /** Call while holding the room's lock; the caller saves. */
+    private void freeze(Room room, String by) {
+        stopTurnClock(room);
+        Map<String, List<Order>> orders = new HashMap<>();
+        for (Kingdom k : room.game.state().kingdoms.values()) {
+            List<Order> o = room.game.ordersOf(k.id);
+            if (k.isHuman() && !o.isEmpty()) {
+                orders.put(k.id, List.copyOf(o));
+            }
+        }
+        room.record.paused = true;
+        room.record.pausedBy = by;
+        room.record.pausedOrders = orders.isEmpty() ? null : orders;
+        room.ready.clear();
+    }
+
+    /** A screen connected to the room: a planned automatic freeze is called off. */
+    public void connected(String code) {
+        Room room = rooms.get(code);
+        if (room == null) {
+            return;
+        }
+        synchronized (room) {
+            room.connections++;
+            cancelAutoPause(room);
+        }
+    }
+
+    /** A screen left the room. When the last one goes, a timed game freezes itself after a short wait. */
+    public void disconnected(String code) {
+        Room room = rooms.get(code);
+        if (room == null) {
+            return;
+        }
+        synchronized (room) {
+            room.connections = Math.max(0, room.connections - 1);
+            if (room.connections == 0) {
+                scheduleAutoPause(room);
+            }
+        }
+    }
+
+    /** Call while holding the room's lock. Only a running game with a turn clock needs it: without one nothing happens anyway. */
+    private void scheduleAutoPause(Room room) {
+        cancelAutoPause(room);
+        if (room.record.status != RoomRecord.Status.PLAYING || room.record.paused || room.record.settings.turnSeconds() <= 0) {
+            return;
+        }
+        room.autoPause = clock.schedule(() -> {
+            try {
+                autoPause(room);
+            } catch (RuntimeException e) {
+                log.error("Automatic pause failed in room {}", room.code(), e);
+            }
+        }, autoPauseMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private static void cancelAutoPause(Room room) {
+        if (room.autoPause != null) {
+            room.autoPause.cancel(false);
+            room.autoPause = null;
+        }
+    }
+
+    void autoPause(Room room) {
+        synchronized (room) {
+            room.autoPause = null;
+            if (room.connections > 0 || room.record.status != RoomRecord.Status.PLAYING || room.record.paused
+                    || rooms.get(room.code()) != room) {
+                return;
+            }
+            freeze(room, RoomRecord.BY_NOBODY);
+            store.save(room.record);
+            log.info("Room {} froze itself: nobody is connected", room.code());
+        }
+        fire(room, Change.PAUSE);
     }
 
     // ------------------------------------------------------------------ helpers
@@ -328,6 +495,9 @@ public class RoomService {
     private String playingKingdom(Room room, String token) {
         if (room.record.status != RoomRecord.Status.PLAYING || room.game == null) {
             throw new GameException("error.notPlaying");
+        }
+        if (room.record.paused) {
+            throw new GameException("error.paused");
         }
         return kingdomOf(room, token).orElseThrow(() -> new GameException("error.notInRoom"));
     }
@@ -368,7 +538,7 @@ public class RoomService {
 
     private boolean isIdle(RoomRecord r, long now) {
         long last = Math.max(r.updatedAt, r.createdAt);
-        return now - last > idleMillis;
+        return now - last > (r.paused ? pausedIdleMillis : idleMillis);
     }
 
     /** Forgets rooms nobody touched for a long time: from memory and from the disk. */
@@ -379,10 +549,8 @@ public class RoomService {
                 if (!isIdle(room.record, now)) {
                     continue;
                 }
-                if (room.timer != null) {
-                    room.timer.cancel(false);
-                    room.timer = null;
-                }
+                stopTurnClock(room);
+                cancelAutoPause(room);
                 rooms.remove(room.code());
                 store.delete(room.code());
                 removed++;
