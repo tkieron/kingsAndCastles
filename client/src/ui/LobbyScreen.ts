@@ -5,6 +5,7 @@ import { inkOn } from '../game/sprites';
 import { kingdomName, setRealms } from '../game/text';
 import { avatarSvg } from '../game/avatars';
 import { identityFields } from './HomeScreen';
+import { deviceButton } from './AnotherDevice';
 import type { Lobby } from '../types';
 
 /** Waiting room: shows the code, who sits where, and the host's Start button. */
@@ -58,7 +59,7 @@ export class LobbyScreen {
                 return;
               }
               try {
-                const r = await api.join(l.code, who.name.value, who.realm.value, who.avatar());
+                const r = await api.join(l.code, who.name.value, who.realm.value, who.avatar(), this.seat.hostToken);
                 this.seat = { ...this.seat, token: r.token };
                 saveSeat(this.seat);
                 this.reconnect(this.seat);
@@ -80,6 +81,7 @@ export class LobbyScreen {
             },
           }, t('lobby.start')))
         : h('p', { class: 'muted' }, players ? t('lobby.waitHost') : t('lobby.waiting')),
-      h('button', { class: 'btn small', onclick: () => this.onLeave() }, t('game.leave')));
+      h('div', { class: 'row wrap' }, deviceButton(this.seat, true),
+        h('button', { class: 'btn small', onclick: () => this.onLeave() }, t('game.leave'))));
   }
 }

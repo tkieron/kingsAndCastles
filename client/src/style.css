@@ -443,3 +443,11 @@ h2 { font-size: 22px; }
   .kinds.small .kind-btn { flex-direction: column; gap: 0; padding: 4px 2px; }
   .kinds.small .kind-name { font-size: 11px; }
 }
+
+/* another device: the return code and its QR code */
+.tut.device { z-index: 70; } /* above the frozen-game card, which it is opened from */
+.qr-box { display: flex; justify-content: center; }
+.qr-box .qr { width: min(200px, 60vw); height: auto; background: #fff; border-radius: 6px; }
+.device-codes { justify-content: center; gap: 24px; }
+.resume-code { font-size: 26px; letter-spacing: 3px; font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
+.resume-card .input.code { text-transform: uppercase; }

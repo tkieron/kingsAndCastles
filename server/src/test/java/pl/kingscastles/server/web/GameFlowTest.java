@@ -137,6 +137,45 @@ class GameFlowTest {
     }
 
     @Test
+    void aChildComesBackOnAnotherDeviceWithTheReturnCode() throws Exception {
+        JsonNode created = post("/api/rooms", "{\"turnSeconds\":0,\"maxTurns\":12,\"seats\":"
+                + "[\"HUMAN\",\"HUMAN\",\"AI_BEGINNER\",\"AI_ADVANCED\",\"AI_PRO\",\"AI_BEGINNER\",\"AI_BEGINNER\"]}",
+                null, null);
+        String code = created.get("code").asText();
+        String host = created.get("hostToken").asText();
+        // the host plays too: joining from the host's screen ties the two together
+        JsonNode teacher = post("/api/rooms/" + code + "/join", "{\"name\":\"Ola\"}", "X-Host-Token", host);
+        JsonNode ania = post("/api/rooms/" + code + "/join", "{\"name\":\"Ania\"}", null, null);
+
+        // nobody else's code shows in the lobby or the join answer
+        String lobby = http.getForObject("/api/rooms/" + code, String.class);
+        assertFalse(lobby.contains("esumeCode"), lobby);
+        assertFalse(ania.has("resumeCode"));
+
+        JsonNode codes = json.readTree(http.exchange("/api/rooms/" + code + "/resume-codes", HttpMethod.GET,
+                new HttpEntity<>(headers("X-Player-Token", ania.get("token").asText())), String.class).getBody());
+        String aniaCode = codes.get("player").asText();
+        assertFalse(codes.has("host"));
+
+        JsonNode back = post("/api/rooms/" + code + "/resume", "{\"resumeCode\":\"" + aniaCode.toLowerCase() + "\"}", null, null);
+        assertEquals(ania.get("token").asText(), back.get("token").asText());
+        assertEquals("owl", back.get("kingdom").asText());
+        assertFalse(back.has("hostToken"));
+
+        JsonNode teacherCodes = json.readTree(http.exchange("/api/rooms/" + code + "/resume-codes", HttpMethod.GET,
+                new HttpEntity<>(headers("X-Player-Token", teacher.get("token").asText())), String.class).getBody());
+        JsonNode teacherBack = post("/api/rooms/" + code + "/resume",
+                "{\"resumeCode\":\"" + teacherCodes.get("player").asText() + "\"}", null, null);
+        assertEquals(host, teacherBack.get("hostToken").asText());
+
+        JsonNode wrong = post("/api/rooms/" + code + "/resume", "{\"resumeCode\":\"AAAA-AAAA\"}", null, null);
+        assertEquals("error.badResumeCode", wrong.get("error").asText());
+        JsonNode stranger = json.readTree(http.exchange("/api/rooms/" + code + "/resume-codes", HttpMethod.GET,
+                HttpEntity.EMPTY, String.class).getBody());
+        assertEquals("error.notInRoom", stranger.get("error").asText());
+    }
+
+    @Test
     void theRulesListPricesAndKingdoms() throws Exception {
         JsonNode rules = json.readTree(http.getForObject("/api/rules", String.class));
         assertEquals(7, rules.get("kingdoms").size());

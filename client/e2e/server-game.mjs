@@ -27,6 +27,8 @@ async function open(who) {
   page.on('console', (m) => {
     // with a test certificate the service worker cannot be fetched; that is the test setup, not the game
     if (m.type() !== 'error' || (hostRules && /SSL certificate error/.test(m.text()))) return;
+    // the wrong return code typed on purpose comes back as 400; the browser logs every 400
+    if (who === 'typed' && /status of 400/.test(m.text())) return;
     problems.push(`${who} console: ${m.text()}`);
   });
   await page.goto(url);
@@ -83,6 +85,38 @@ try {
   }
   check(true, 'the turn ends when both children are ready, and turn 2 begins');
   await shot(kids[0], '3-turn-2');
+
+  await kids[0].getByRole('button', { name: /Dalej: tura 2/ }).click();
+  // Ania takes her game to a phone: the 📱 card shows her return code and a QR code with the link
+  await kids[0].getByRole('button', { name: 'Graj na innym urządzeniu' }).first().click();
+  const card = kids[0].getByRole('dialog', { name: /Graj na innym urządzeniu/ });
+  await card.waitFor();
+  const resumeCode = await card.locator('[data-code]').getAttribute('data-code');
+  check(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(resumeCode ?? ''), `Ania sees her return code (${resumeCode}) and the QR code`);
+  await shot(kids[0], '4-another-device');
+  await card.getByRole('button', { name: 'Zamknij' }).click();
+
+  // the QR code opens this link on the phone: straight back into Ania's kingdom, and the code leaves the address
+  const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'pl-PL', ignoreHTTPSErrors: !!hostRules });
+  const phone = await phoneCtx.newPage();
+  phone.on('pageerror', (e) => problems.push(`phone: ${e.message}`));
+  await phone.goto(`${url}?server=${encodeURIComponent(url.replace(/\/$/, ""))}#room=${code}&resume=${resumeCode}`);
+  await phone.getByText(/2\/20/).first().waitFor();
+  check(!phone.url().includes('resume='), 'the phone opens Ania\'s game from the link, and the code leaves the address');
+  await shot(phone, '5-phone-back-in-game');
+
+  // or typed by hand on another computer, small letters and all
+  const typed = await open('typed');
+  const back = typed.locator('form.resume-card');
+  await back.locator('input').nth(0).fill(code);
+  await back.locator('input').nth(1).fill('zzzz-zzzz');
+  await back.getByRole('button', { name: 'Wracam' }).click();
+  await typed.getByText('Ten kod powrotu nie pasuje').waitFor();
+  check(true, 'a wrong code is refused with a clear message');
+  await back.locator('input').nth(1).fill(resumeCode.toLowerCase());
+  await back.getByRole('button', { name: 'Wracam' }).click();
+  await typed.getByText(/2\/20/).first().waitFor();
+  check(true, 'the typed return code brings Ania back too');
 
   check(problems.length === 0, `no errors in the browsers${problems.length ? ': ' + problems.join('; ') : ''}`);
 } finally {

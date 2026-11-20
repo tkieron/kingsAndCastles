@@ -43,6 +43,9 @@ public class RoomController {
     public record ReadyRequest(boolean ready) {
     }
 
+    public record ResumeRequest(String resumeCode) {
+    }
+
     public record PauseRequest(boolean paused) {
     }
 
@@ -61,9 +64,30 @@ public class RoomController {
     }
 
     @PostMapping("/{code}/join")
-    public Views.Joined join(@PathVariable String code, @RequestBody JoinRequest req) {
-        Player p = rooms.join(code, req.name(), req.realm(), req.avatar() == null ? 0 : req.avatar());
+    public Views.Joined join(@PathVariable String code, @RequestBody JoinRequest req,
+                             @RequestHeader(value = HOST, required = false) String hostToken) {
+        Player p = rooms.join(code, req.name(), req.realm(), req.avatar() == null ? 0 : req.avatar(), hostToken);
         return new Views.Joined(p.token(), p.seat(), Room.kingdomOfSeat(p.seat()));
+    }
+
+    /** Back to the game on another device: the return code gives the player token and/or the host token. */
+    @PostMapping("/{code}/resume")
+    public RoomService.Resumed resume(@PathVariable String code, @RequestBody ResumeRequest req,
+                                      @RequestHeader(value = "CF-Connecting-IP", required = false) String cloudflareIp,
+                                      jakarta.servlet.http.HttpServletRequest http) {
+        // behind Cloudflare the visitor's address comes in this header; anyone reaching the server directly could
+        // fake it, which is why each room also has a limit for all devices together
+        String client = cloudflareIp != null && !cloudflareIp.isBlank() && cloudflareIp.length() <= 64
+                ? cloudflareIp.strip() : http.getRemoteAddr();
+        return rooms.resume(code, req.resumeCode(), client);
+    }
+
+    /** The return codes this screen may show (its own child's, and the host's for the host's screen). */
+    @GetMapping("/{code}/resume-codes")
+    public RoomService.Codes resumeCodes(@PathVariable String code,
+                                         @RequestHeader(value = PLAYER, required = false) String token,
+                                         @RequestHeader(value = HOST, required = false) String hostToken) {
+        return rooms.resumeCodes(code, token, hostToken);
     }
 
     @PostMapping("/{code}/start")

@@ -25,6 +25,7 @@ public class Room {
     /** Freezing and unfreezing saves the room, so a room may do it only so often (see RoomService.pause). */
     long pauseWindowStart;
     int pauseChanges;
+    final ResumeTries resumeTries = new ResumeTries();
 
     Room(RoomRecord record) {
         this.record = record;

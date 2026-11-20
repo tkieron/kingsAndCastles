@@ -1,4 +1,5 @@
-import type { Link, ServerMessage } from '../api';
+import type { Link, Seat, ServerMessage } from '../api';
+import { deviceButton } from './AnotherDevice';
 import { append, h, word } from '../dom';
 import { t, type Key } from '../i18n';
 import { MapCanvas, type Overlay } from '../game/MapCanvas';
@@ -77,7 +78,8 @@ export class GameScreen {
   /** The right panel on a computer: open (full, as before) or folded to a narrow strip of icons. */
   private panelOpen = pref('kc.panelOpen', true);
 
-  constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void) {
+  constructor(private readonly rules: Rules, private readonly conn: Link, private readonly onLeave: () => void,
+              private readonly seat: Seat | null = null) {
     this.map = new MapCanvas((p) => this.clickMap(p));
     this.mapBox.append(this.map.canvas);
     const zoom = h('div', { class: 'zoom' },
@@ -550,6 +552,8 @@ export class GameScreen {
     const freeze = (this.me() || this.host) && !s.finished && s.status === 'PLAYING' && !s.paused ? h('button', {
       class: 'btn small freeze', title: t('pause.freeze'), 'aria-label': t('pause.freeze'), onclick: () => this.conn.pause(true),
     }, '❄') : null;
+    // take the game along to a phone or another computer (not in the offline version, which lives on one device)
+    const device = !s.finished ? deviceButton(this.seat) : null;
     const fold = h('button', {
       class: 'btn small fold', 'aria-expanded': String(this.barOpen),
       title: t(this.barOpen ? 'bar.collapse' : 'bar.expand'), 'aria-label': t(this.barOpen ? 'bar.collapse' : 'bar.expand'),
@@ -580,7 +584,7 @@ export class GameScreen {
         ] : []),
         h('span', { class: 'spacer' }),
         ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
-        ...(freeze ? [freeze] : []), fold, ...(help ? [help] : []));
+        ...(freeze ? [freeze] : []), ...(device ? [device] : []), fold, ...(help ? [help] : []));
       this.tick();
       return;
     }
@@ -606,7 +610,7 @@ export class GameScreen {
           h('span', {}, `${k.prestige} · `, h('i', { class: ready ? 'good' : '' }, state))));
       })),
       ...(this.online ? [] : [h('div', { class: 'offline' }, t('game.offline'))]),
-      ...(freeze ? [freeze] : []), fold, ...(help ? [help] : []),
+      ...(freeze ? [freeze] : []), ...(device ? [device] : []), fold, ...(help ? [help] : []),
     );
     this.tick();
   }
@@ -1430,14 +1434,17 @@ export class GameScreen {
       : s.pausedBy === 'host' ? t('pause.byHost')
         : s.pausedBy ? t('pause.byKingdom', { name: kingdomName(s.pausedBy) }) : '';
     const resume = h('button', { class: 'btn-ready', onclick: () => this.conn.pause(false) }, t('pause.resume'));
+    const frozenDevice = deviceButton(this.seat, true);
     this.frozen?.remove();
     this.frozen = h('div', { class: 'tut dim frozen', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('pause.title') },
       h('div', { class: 'tut-card middle' },
         h('div', { class: 'title' }, t('pause.title')),
         by ? h('p', {}, by) : null,
         h('p', { class: 'small' }, t('pause.text')),
+        // going away for a few days: the child may come back on another device
+        frozenDevice ? h('p', { class: 'small' }, t('device.frozenHint')) : null,
         // no "Leave" here: leaving forgets this device's seat, and after a break the child wants to come back to it
-        h('div', { class: 'tut-buttons' }, resume)));
+        h('div', { class: 'tut-buttons' }, frozenDevice ?? h('span'), resume)));
     // appended last, so it stays above a turn summary or the offers card
     document.body.append(this.frozen);
     resume.focus();

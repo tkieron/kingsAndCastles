@@ -74,9 +74,21 @@ export const api = {
     ? callLocal((m) => m.localApi.lobby(code))
     : call<Lobby>('GET', `/api/rooms/${code}`),
   /** realm: the kingdom's name (empty: the kingdom keeps its own name); avatar: the chosen picture, 0-9 kings, 10-19 queens */
-  join: (code: string, name: string, realm = '', avatar = 0) => isLocal()
+  /** hostToken: the host joining from their own screen, so one return code later brings back both */
+  join: (code: string, name: string, realm = '', avatar = 0, hostToken?: string) => isLocal()
     ? callLocal((m) => m.localApi.join(code, name, realm, avatar))
-    : call<{ token: string; seat: number; kingdom: string }>('POST', `/api/rooms/${code}/join`, { name, realm, avatar }),
+    : call<{ token: string; seat: number; kingdom: string }>('POST', `/api/rooms/${code}/join`, { name, realm, avatar },
+      hostToken ? { 'X-Host-Token': hostToken } : {}),
+  /** Back to a game on another device with a return code (server version only). */
+  resume: (code: string, resumeCode: string) =>
+    call<{ token?: string; hostToken?: string; kingdom?: string }>('POST', `/api/rooms/${code}/resume`, { resumeCode }),
+  /** The return codes this screen may show: its child's own, or the host's for a host who does not play. */
+  resumeCodes: (seat: Seat) => {
+    const headers: Record<string, string> = {};
+    if (seat.token) headers['X-Player-Token'] = seat.token;
+    if (seat.hostToken) headers['X-Host-Token'] = seat.hostToken;
+    return call<{ player?: string; host?: string }>('GET', `/api/rooms/${seat.code}/resume-codes`, undefined, headers);
+  },
   start: (code: string, hostToken: string) => isLocal()
     ? callLocal((m) => m.localApi.start(code, hostToken))
     : call<Lobby>('POST', `/api/rooms/${code}/start`, undefined, { 'X-Host-Token': hostToken }),
